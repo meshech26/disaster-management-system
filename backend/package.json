@@ -1,0 +1,38 @@
+{
+  "name": "disaster-management-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Disaster Management System with Real-Time Updates, SOS Beacons, Incident Reporting & Shelters",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node seeders/seedData.js"
+  },
+  "keywords": [
+    "disaster-management",
+    "emergency-response",
+    "express",
+    "mongodb",
+    "socket.io",
+    "maps"
+  ],
+  "author": "Disaster Response Team",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.3.4",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "morgan": "^1.10.0",
+    "nodemon": "^3.1.0"
+  }
+}

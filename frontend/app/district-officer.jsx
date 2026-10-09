@@ -263,7 +263,7 @@ export default function DistrictOfficerScreen() {
       setShelterModalOpen(false);
       setEditingShelter(null);
       fetchShelters();
-      Alert.alert('Updated', 'Shelter occupancy updated successfully.');
+      Alert.alert('Updated', 'Shelter details updated successfully.');
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to update occupancy.');
     }
@@ -288,7 +288,7 @@ export default function DistrictOfficerScreen() {
   // Confirm Dispatch (Panel 4 -> Panel 5)
   const handleConfirmDispatch = async () => {
     if (!selectedTeamUnit) {
-      Alert.alert('Required', 'Please select a rescue unit.');
+      Alert.alert('Rescue Unit Required', 'Please select a rescue unit before dispatching.');
       return;
     }
 
@@ -865,7 +865,7 @@ export default function DistrictOfficerScreen() {
                   </View>
 
                   <View style={styles.formGroup}>
-                    <Text style={styles.formLabel}>Occupancy (Number of Beds) *</Text>
+                    <Text style={styles.formLabel}>Total Capacity (Beds) *</Text>
                     <TextInput
                       value={shelterForm.occupancyBeds}
                       onChangeText={(t) => setShelterForm({ ...shelterForm, occupancyBeds: t })}
@@ -880,7 +880,7 @@ export default function DistrictOfficerScreen() {
                   <View style={styles.occupancyInfoNotice}>
                     <Feather name="info" size={15} color="#0066FF" style={{ marginRight: 8 }} />
                     <Text style={styles.occupancyInfoText}>
-                      Occupancy equals the number of beds available at the shelter.
+                      Enter the total number of beds, including occupied beds.
                     </Text>
                   </View>
 

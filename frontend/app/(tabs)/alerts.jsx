@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
     marginRight: 6
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
     borderColor: '#BBF7D0'
   },
   markAsReadHeaderText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#C81E1E'
   },
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
   },
   newBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   alertCardRead: {
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9'
   },
   cardMarkReadText: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600',
     color: '#64748B'
   },
@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#C81E1E'
   },
   filterPillText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#64748B'
   },
@@ -549,13 +549,14 @@ const styles = StyleSheet.create({
     marginRight: 10
   },
   alertTitle: {
-    fontSize: 15,
+    flexShrink: 1,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     color: '#0F172A'
   },
   alertMessage: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 16,
+    lineHeight: 25,
     color: '#334155',
     marginBottom: 10
   },
@@ -568,26 +569,28 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   instructionsTitle: {
-    fontSize: 11,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     color: '#64748B',
     marginBottom: 4,
     textTransform: 'uppercase'
   },
   instructionLine: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#334155',
-    lineHeight: 17
+    lineHeight: 25
   },
   cardFooter: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 4
   },
   timeText: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14, lineHeight: 21,
+    color: '#64748B',
     fontWeight: '600'
   },
   badge: {
@@ -596,7 +599,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   },
   emptyContainer: {
@@ -606,14 +609,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#334155',
     marginTop: 12
   },
   emptySubtitle: {
-    fontSize: 13,
-    color: '#94A3B8',
+    fontSize: 16, lineHeight: 24,
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 4
   },
@@ -631,12 +634,12 @@ const styles = StyleSheet.create({
     marginRight: 10
   },
   eventNotificationTitle: {
-    fontSize: 13,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     color: '#15803D'
   },
   eventNotificationMessage: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#166534',
     marginTop: 2
   }

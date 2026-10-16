@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { storage } from '../utils/storage';
+import { normalizeAuthUser } from '../utils/authUser';
 
 const AuthContext = createContext(undefined);
 
@@ -20,13 +21,29 @@ export const AuthProvider = ({ children }) => {
 
       if (storedToken && storedUser) {
         setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+        setUser(normalizeAuthUser(JSON.parse(storedUser)));
       }
     } catch (e) {
       console.warn('Failed loading stored auth credentials:', e);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const saveSession = async (data) => {
+    const { user: userData, token: jwtToken } = data || {};
+    if (!userData || typeof jwtToken !== 'string' || !jwtToken) {
+      throw new Error('Could not start your session. Please try signing in.');
+    }
+
+    // Authenticated screens read the token from storage when making API calls.
+    // Finish saving both credentials before publishing the signed-in user.
+    const normalizedUser = normalizeAuthUser(userData);
+    await storage.setItem('auth_token', jwtToken);
+    await storage.setItem('auth_user', JSON.stringify(normalizedUser));
+    setUser(normalizedUser);
+    setToken(jwtToken);
+    return normalizedUser;
   };
 
   const login = async (identifier, password) => {
@@ -36,13 +53,7 @@ export const AuthProvider = ({ children }) => {
         ? { email: identifier, password }
         : { username: identifier, password };
       const res = await authService.login(payload);
-      const { user: userData, token: jwtToken } = res.data;
-
-      setUser(userData);
-      setToken(jwtToken);
-      await storage.setItem('auth_token', jwtToken);
-      await storage.setItem('auth_user', JSON.stringify(userData));
-      return userData;
+      return await saveSession(res.data);
     } finally {
       setIsLoading(false);
     }
@@ -52,13 +63,8 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
     try {
       const res = await authService.register(data);
-      const { user: userData, token: jwtToken } = res.data;
-
-      setUser(userData);
-      setToken(jwtToken);
-      await storage.setItem('auth_token', jwtToken);
-      await storage.setItem('auth_user', JSON.stringify(userData));
-      return userData;
+      // Account creation is followed by an explicit sign-in through Access Portal.
+      return res.data.user;
     } finally {
       setIsLoading(false);
     }

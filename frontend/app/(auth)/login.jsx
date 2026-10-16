@@ -33,18 +33,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const userData = await login(username.trim(), password);
-      if (userData?.role === 'duty_officer') {
-        router.replace('/duty-officer');
-      } else if (userData?.role === 'dmc_officer' || userData?.role === 'admin') {
-        router.replace('/dmc-officer');
-      } else if (userData?.role === 'district_officer') {
-        router.replace('/district-officer');
-      } else if (userData?.role === 'rescue_team' || userData?.role === 'responder') {
-        router.replace('/rescue-team');
-      } else {
-        router.replace('/(tabs)');
-      }
+      await login(username.trim(), password);
     } catch (err) {
       Alert.alert('Access Denied', err.message || 'Invalid credentials');
     } finally {

@@ -2,5 +2,7 @@ node_modules/
 .expo/
 dist/
 web-build/
-.env
+.env*
+credentials
+credentials.*
 *.log

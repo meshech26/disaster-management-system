@@ -1,11 +1,24 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Platform } from 'react-native';
+import { ActivityIndicator, View, Platform } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 
 export default function TabsLayout() {
-  const { user } = useAuth();
+  const { user, token, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0E1F4D' }}>
+        <ActivityIndicator size="large" color="#EF4444" />
+      </View>
+    );
+  }
+
+  if (!user || !token) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
   const isCitizen = user?.role === 'citizen';
 
   return (
@@ -18,7 +31,7 @@ export default function TabsLayout() {
               backgroundColor: '#FFFFFF',
               borderTopColor: '#E2E8F0',
               borderTopWidth: 1,
-              height: Platform.OS === 'ios' ? 84 : 64,
+              height: Platform.OS === 'ios' ? 92 : 76,
               paddingBottom: Platform.OS === 'ios' ? 24 : 8,
               paddingTop: 8,
               elevation: 12,
@@ -30,7 +43,8 @@ export default function TabsLayout() {
         tabBarActiveTintColor: '#C81E1E',
         tabBarInactiveTintColor: '#64748B',
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 14,
+          lineHeight: 21,
           fontWeight: '700',
           marginTop: -2
         }

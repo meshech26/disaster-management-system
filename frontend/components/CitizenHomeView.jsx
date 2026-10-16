@@ -16,6 +16,7 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { alertService } from '../services/alertService';
 import { shelterService } from '../services/shelterService';
+import EmergencyInstructions from './EmergencyInstructions';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -25,9 +26,6 @@ export default function CitizenHomeView({ user, logout, router }) {
 
   // Screen 4 toggle: 'map' | 'list'
   const [shelterViewMode, setShelterViewMode] = useState('map');
-
-  // Screen 5 filter: 'all' | 'floods' | 'landslides' | 'heavy_rain'
-  const [instructionCategory, setInstructionCategory] = useState('all');
 
   // Data
   const [loading, setLoading] = useState(true);
@@ -140,7 +138,7 @@ export default function CitizenHomeView({ user, logout, router }) {
       {/* SCREEN 3: CITIZEN HOME */}
       {/* ========================================================================= */}
       {currentTab === 'home' && (
-        <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
+        <ScrollView style={styles.scrollArea} contentContainerStyle={[styles.scrollContent, styles.homeScrollContent]}>
           {/* Top Greeting Bar */}
           <View style={styles.topGreetingBar}>
             <View>
@@ -253,44 +251,6 @@ export default function CitizenHomeView({ user, logout, router }) {
             </View>
           )}
 
-          {/* 3 QUICK ACCESS BUTTONS (MATCHING SCREEN 3) */}
-          <View style={styles.quickAccessRow}>
-            {/* Nearby Shelters */}
-            <TouchableOpacity
-              onPress={() => setCurrentTab('shelters')}
-              activeOpacity={0.85}
-              style={styles.quickAccessCard}
-            >
-              <View style={styles.quickIconCircle}>
-                <Ionicons name="home" size={24} color="#1E3A8A" />
-              </View>
-              <Text style={styles.quickAccessText}>Nearby{'\n'}Shelters</Text>
-            </TouchableOpacity>
-
-            {/* Emergency Instructions */}
-            <TouchableOpacity
-              onPress={() => setCurrentTab('instructions')}
-              activeOpacity={0.85}
-              style={styles.quickAccessCard}
-            >
-              <View style={styles.quickIconCircle}>
-                <Ionicons name="document-text" size={24} color="#1E3A8A" />
-              </View>
-              <Text style={styles.quickAccessText}>Emergency{'\n'}Instructions</Text>
-            </TouchableOpacity>
-
-            {/* Emergency Contacts */}
-            <TouchableOpacity
-              onPress={() => setContactsModalVisible(true)}
-              activeOpacity={0.85}
-              style={styles.quickAccessCard}
-            >
-              <View style={[styles.quickIconCircle, { backgroundColor: '#FEE2E2' }]}>
-                <Ionicons name="call" size={24} color="#DC2626" />
-              </View>
-              <Text style={styles.quickAccessText}>Emergency{'\n'}Contacts</Text>
-            </TouchableOpacity>
-          </View>
         </ScrollView>
       )}
 
@@ -459,120 +419,20 @@ export default function CitizenHomeView({ user, logout, router }) {
       {/* SCREEN 5: EMERGENCY INSTRUCTIONS */}
       {/* ========================================================================= */}
       {currentTab === 'instructions' && (
-        <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
-          {/* Header */}
-          <View style={styles.screenHeader}>
-            <TouchableOpacity
-              onPress={() => setCurrentTab('home')}
-              style={styles.headerBackBtn}
-            >
-              <Ionicons name="arrow-back" size={24} color="#1E3A8A" />
-            </TouchableOpacity>
-            <Text style={styles.screenHeaderTitle}>Emergency Instructions</Text>
-          </View>
+        <EmergencyInstructions onBack={() => setCurrentTab('home')} />
+      )}
 
-          {/* Category Filter Pills */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterPillsScroll}
-          >
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'floods', label: 'Floods' },
-              { id: 'landslides', label: 'Landslides' },
-              { id: 'heavy_rain', label: 'Heavy Rain' }
-            ].map((cat) => {
-              const isSel = instructionCategory === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  onPress={() => setInstructionCategory(cat.id)}
-                  style={[
-                    styles.instructionPill,
-                    isSel && styles.instructionPillActive
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.instructionPillText,
-                      isSel && styles.instructionPillTextActive
-                    ]}
-                  >
-                    {cat.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Instruction Cards (Screen 5 mockup) */}
-          <View style={styles.instructionsContainer}>
-            {/* During Floods */}
-            {(instructionCategory === 'all' || instructionCategory === 'floods') && (
-              <View style={styles.instructionCard}>
-                <View style={[styles.instIconCircle, { backgroundColor: '#FEE2E2' }]}>
-                  <Ionicons name="warning" size={24} color="#DC2626" />
-                </View>
-                <View style={styles.instContent}>
-                  <Text style={styles.instTitle}>During Floods</Text>
-                  <Text style={styles.instBullet}>• Move to higher ground</Text>
-                  <Text style={styles.instBullet}>• Avoid walking or driving through flood water</Text>
-                  <Text style={styles.instBullet}>• Turn off electricity if water enters your home</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color="#DC2626" />
-              </View>
-            )}
-
-            {/* During Landslides */}
-            {(instructionCategory === 'all' || instructionCategory === 'landslides') && (
-              <View style={styles.instructionCard}>
-                <View style={[styles.instIconCircle, { backgroundColor: '#FFEDD5' }]}>
-                  <Ionicons name="warning" size={24} color="#EA580C" />
-                </View>
-                <View style={styles.instContent}>
-                  <Text style={styles.instTitle}>During Landslides</Text>
-                  <Text style={styles.instBullet}>• Move away from hilly areas</Text>
-                  <Text style={styles.instBullet}>• Watch for unusual sounds</Text>
-                  <Text style={styles.instBullet}>• Do not return until authorities say it is safe</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color="#EA580C" />
-              </View>
-            )}
-
-            {/* During Heavy Rain */}
-            {(instructionCategory === 'all' || instructionCategory === 'heavy_rain') && (
-              <View style={styles.instructionCard}>
-                <View style={[styles.instIconCircle, { backgroundColor: '#EDE9FE' }]}>
-                  <Ionicons name="warning" size={24} color="#7C3AED" />
-                </View>
-                <View style={styles.instContent}>
-                  <Text style={styles.instTitle}>During Heavy Rain</Text>
-                  <Text style={styles.instBullet}>• Stay indoors if possible</Text>
-                  <Text style={styles.instBullet}>• Keep emergency supplies ready</Text>
-                  <Text style={styles.instBullet}>• Avoid unnecessary travel</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color="#7C3AED" />
-              </View>
-            )}
-
-            {/* General Safety Tips */}
-            {instructionCategory === 'all' && (
-              <View style={styles.instructionCard}>
-                <View style={[styles.instIconCircle, { backgroundColor: '#DCFCE7' }]}>
-                  <Ionicons name="shield-checkmark" size={24} color="#16A34A" />
-                </View>
-                <View style={styles.instContent}>
-                  <Text style={styles.instTitle}>General Safety Tips</Text>
-                  <Text style={styles.instBullet}>• Keep your phone charged</Text>
-                  <Text style={styles.instBullet}>• Follow official alerts and instructions</Text>
-                  <Text style={styles.instBullet}>• Help vulnerable people in your community</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color="#16A34A" />
-              </View>
-            )}
-          </View>
-        </ScrollView>
+      {currentTab === 'home' && (
+        <TouchableOpacity
+          onPress={() => setContactsModalVisible(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Emergency contacts"
+          accessibilityHint="Opens the emergency hotline numbers"
+          style={styles.emergencyContactsButton}
+        >
+          <Ionicons name="call" size={28} color="#FFFFFF" />
+        </TouchableOpacity>
       )}
 
       {/* ========================================================================= */}
@@ -814,6 +674,26 @@ const styles = StyleSheet.create({
     padding: 18,
     paddingBottom: 90
   },
+  homeScrollContent: {
+    paddingBottom: 160
+  },
+  emergencyContactsButton: {
+    position: 'absolute',
+    right: 18,
+    bottom: 84,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 8,
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8
+  },
   topGreetingBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -996,41 +876,6 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 11
   },
-  quickAccessRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12
-  },
-  quickAccessCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1
-  },
-  quickIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#EFF6FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10
-  },
-  quickAccessText: {
-    color: '#0F172A',
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 16
-  },
   screenHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1176,69 +1021,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 11,
     fontWeight: '600'
-  },
-  filterPillsScroll: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-    paddingVertical: 4
-  },
-  instructionPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#DBEAFE'
-  },
-  instructionPillActive: {
-    backgroundColor: '#1E3A8A',
-    borderColor: '#1E3A8A'
-  },
-  instructionPillText: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  instructionPillTextActive: {
-    color: '#FFFFFF'
-  },
-  instructionsContainer: {
-    gap: 14
-  },
-  instructionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4
-  },
-  instIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14
-  },
-  instContent: {
-    flex: 1
-  },
-  instTitle: {
-    color: '#0F172A',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 6
-  },
-  instBullet: {
-    color: '#475569',
-    fontSize: 12,
-    lineHeight: 18
   },
   bottomTabBar: {
     position: 'absolute',

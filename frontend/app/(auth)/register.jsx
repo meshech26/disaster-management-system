@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Modal
@@ -59,10 +58,12 @@ export default function RegisterScreen() {
 
   const [districtModalOpen, setDistrictModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSignUp = async () => {
+    setError('');
     if (!fullName.trim() || !email.trim() || !password.trim()) {
-      Alert.alert('Required Fields', 'Please fill in your Full Name, Email, and Password.');
+      setError('Please fill in your Full Name, Email, and Password.');
       return;
     }
 
@@ -73,7 +74,7 @@ export default function RegisterScreen() {
         name: fullName.trim(),
         username: username.trim(),
         email: email.trim().toLowerCase(),
-        password: password.trim(),
+        password,
         phone: '+94 77 123 4567', // default Sri Lanka prefix
         district: district,
         role: backendRole,
@@ -82,15 +83,9 @@ export default function RegisterScreen() {
           address: district ? `${district} District, Sri Lanka` : 'Sri Lanka'
         }
       });
-
-      Alert.alert('Registration Successful', 'Welcome to Disaster Management Center network.', [
-        {
-          text: 'Continue',
-          onPress: () => router.replace('/(tabs)')
-        }
-      ]);
+      router.replace('/(auth)/login');
     } catch (err) {
-      Alert.alert('Sign Up Failed', err.message || 'Could not complete registration');
+      setError(err.message || 'Could not complete registration');
     } finally {
       setLoading(false);
     }
@@ -270,6 +265,11 @@ export default function RegisterScreen() {
           </View>
 
           {/* Sign Up Action Button */}
+          {error ? (
+            <Text accessibilityRole="alert" style={styles.errorText}>
+              {error}
+            </Text>
+          ) : null}
           <TouchableOpacity
             onPress={handleSignUp}
             disabled={loading}
@@ -455,6 +455,11 @@ const styles = StyleSheet.create({
   },
   dropdownPlaceholder: {
     color: '#94A3B8'
+  },
+  errorText: {
+    color: '#C81E1E',
+    fontSize: 13,
+    marginBottom: 8
   },
   signUpButton: {
     backgroundColor: '#C81E1E',

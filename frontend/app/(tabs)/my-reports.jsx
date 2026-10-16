@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,8 @@ import {
   Modal,
   StyleSheet
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { socketService } from '../../services/socketService';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { incidentService } from '../../services/incidentService';
@@ -41,26 +42,51 @@ export default function MyReportsScreen() {
   const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'under_review' | 'verified' | 'rejected'
   const [selectedReport, setSelectedReport] = useState(null);
 
-  const fetchReports = async () => {
+  const fetchReports = useCallback(async () => {
+    if (!user?._id) {
+      setReports([]);
+      setSelectedReport(null);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
-      const res = await incidentService.getIncidents({ limit: 50 });
+      const res = await incidentService.getIncidents({ reportedBy: user._id, limit: 50 });
       const all = res.data || [];
-      // If user is authenticated, prioritize user's reports; otherwise display all volunteer ground reports
+      // An empty submission history must stay empty.
       const mine = all.filter(
         (r) => r.reportedBy?._id === user?._id || r.reportedBy === user?._id
       );
-      setReports(mine.length > 0 ? mine : all);
+      setReports(mine);
     } catch (e) {
       console.warn('Failed to load my reports:', e.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user?._id]);
+
+  useFocusEffect(useCallback(() => {
+    fetchReports();
+  }, [fetchReports]));
 
   useEffect(() => {
-    fetchReports();
-  }, [user]);
+    const socket = socketService.getSocket();
+    const onStatusUpdated = (incident) => {
+      const reporterId = incident.reportedBy?._id || incident.reportedBy;
+      if (reporterId !== user?._id) return;
+      setReports((previous) => previous.map((report) =>
+        report._id === incident._id ? incident : report
+      ));
+      setSelectedReport((previous) => previous?._id === incident._id ? incident : previous);
+    };
+    socket.on('incident_status_updated', onStatusUpdated);
+    socket.on('connect', fetchReports);
+    return () => {
+      socket.off('incident_status_updated', onStatusUpdated);
+      socket.off('connect', fetchReports);
+    };
+  }, [user?._id, fetchReports]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -98,7 +124,7 @@ export default function MyReportsScreen() {
     if (s === 'rejected' || s === 'dismissed') {
       return { label: 'Rejected', bg: '#FEE2E2', text: '#B91C1C' };
     }
-    return { label: 'Under Review', bg: '#FEF3C7', text: '#B45309' };
+    return { label: 'In review', bg: '#FEF3C7', text: '#B45309' };
   };
 
   const getHazardTypeBadge = (type, customType) => {
@@ -135,7 +161,7 @@ export default function MyReportsScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Under Review */}
+          {/* In review */}
           <TouchableOpacity
             onPress={() => setActiveFilter('under_review')}
             style={[styles.filterPill, activeFilter === 'under_review' && styles.filterPillActive]}
@@ -146,7 +172,7 @@ export default function MyReportsScreen() {
                 activeFilter === 'under_review' && styles.filterPillTextActive
               ]}
             >
-              Under Review ({underReviewCount})
+              In review ({underReviewCount})
             </Text>
           </TouchableOpacity>
 
@@ -225,7 +251,7 @@ export default function MyReportsScreen() {
 
                   <View style={styles.cardRight}>
                     <View style={styles.cardTopRow}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
+                      <Text style={styles.cardTitle} numberOfLines={2}>
                         {report.title || 'Ground Hazard Report'}
                       </Text>
                     </View>
@@ -309,7 +335,7 @@ export default function MyReportsScreen() {
                       const tBadge = getHazardTypeBadge(selectedReport.disasterType, selectedReport.customDisasterType);
                       return (
                         <View style={[styles.hazardPill, { backgroundColor: tBadge.bg }]}>
-                          <Text style={[styles.hazardPillText, { color: tBadge.color, fontSize: 12 }]}>
+                          <Text style={[styles.hazardPillText, { color: tBadge.color, fontSize: 16, lineHeight: 24 }]}>
                             {tBadge.label}
                           </Text>
                         </View>
@@ -367,7 +393,7 @@ const styles = StyleSheet.create({
     padding: 6
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -391,7 +417,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#C81E1E'
   },
   filterPillText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#64748B'
   },
@@ -447,7 +473,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   cardTitle: {
-    fontSize: 15,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#0F172A',
     flex: 1
@@ -458,19 +484,21 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   cardLocationText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     flex: 1
   },
   cardBottomRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 8
   },
   cardDateText: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14, lineHeight: 21,
+    color: '#64748B',
     fontWeight: '600'
   },
   statusBadge: {
@@ -479,7 +507,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   statusBadgeText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   },
   emptyContainer: {
@@ -489,14 +517,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#334155',
     marginTop: 12
   },
   emptySubtitle: {
-    fontSize: 13,
-    color: '#94A3B8',
+    fontSize: 16, lineHeight: 24,
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 4
   },
@@ -521,7 +549,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   modalTitle: {
-    fontSize: 17,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A',
     flex: 1
@@ -545,18 +573,18 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F8FAFC'
   },
   modalLabel: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#64748B'
   },
   modalValue: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#0F172A'
   },
   modalDescription: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#334155',
     marginTop: 6
   },
@@ -566,7 +594,7 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   hazardPillText: {
-    fontSize: 10.5,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   }
 });

@@ -207,7 +207,7 @@ export default function SubmitGroundReportScreen() {
               <View style={styles.modalDetailRow}>
                 <Ionicons name="shield-checkmark-outline" size={16} color="#16A34A" style={{ marginRight: 6 }} />
                 <Text style={styles.modalDetailLabel}>Status:</Text>
-                <Text style={styles.modalDetailStatus}>Under Review</Text>
+                <Text style={styles.modalDetailStatus}>In review</Text>
               </View>
               <View style={styles.modalDetailRow}>
                 <Ionicons name="location-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
@@ -302,7 +302,7 @@ export default function SubmitGroundReportScreen() {
                           >
                             {item.label}
                           </Text>
-                          <Text style={styles.hazardTypeCardDesc} numberOfLines={1}>
+                          <Text style={styles.hazardTypeCardDesc}>
                             {item.description}
                           </Text>
                         </View>
@@ -555,7 +555,7 @@ const styles = StyleSheet.create({
     padding: 6
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40
   },
   sectionLabel: {
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 8
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   titleInput: {
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '600'
   },
@@ -594,13 +594,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   uploadTitle: {
-    fontSize: 15,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#0F172A',
     marginTop: 8
   },
   uploadSubtitle: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     marginTop: 4
   },
@@ -641,7 +641,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF'
   },
   addMoreText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     color: '#64748B',
     marginTop: 2
@@ -656,14 +656,14 @@ const styles = StyleSheet.create({
   descriptionInput: {
     minHeight: 100,
     textAlignVertical: 'top',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '500'
   },
   charCounter: {
     alignSelf: 'flex-end',
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14, lineHeight: 21,
+    color: '#64748B',
     marginTop: 4,
     fontWeight: '600'
   },
@@ -684,7 +684,7 @@ const styles = StyleSheet.create({
     flexShrink: 1
   },
   coordinatesPillText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     color: '#B91C1C',
     flexShrink: 1
@@ -694,7 +694,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4
   },
   mapFooterNoteText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -717,7 +717,7 @@ const styles = StyleSheet.create({
   },
   submitBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     letterSpacing: 0.5
   },
@@ -751,17 +751,17 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
     marginBottom: 8
   },
   modalSubText: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#64748B',
     textAlign: 'center',
-    lineHeight: 19,
+    lineHeight: 24,
     marginBottom: 18
   },
   modalDetailsBox: {
@@ -775,23 +775,26 @@ const styles = StyleSheet.create({
     gap: 8
   },
   modalDetailRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center'
   },
   modalDetailLabel: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#64748B',
     marginRight: 6
   },
   modalDetailValue: {
-    fontSize: 12,
+    flexShrink: 1,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#0F172A',
     flex: 1
   },
   modalDetailStatus: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#B45309'
   },
@@ -812,7 +815,7 @@ const styles = StyleSheet.create({
   modalPrimaryBtnText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 15
+    fontSize: 16, lineHeight: 24
   },
   modalSecondaryBtn: {
     backgroundColor: '#F1F5F9',
@@ -825,16 +828,18 @@ const styles = StyleSheet.create({
   modalSecondaryBtnText: {
     color: '#475569',
     fontWeight: '600',
-    fontSize: 14
+    fontSize: 16, lineHeight: 24
   },
   hazardTypeHeaderRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
     marginBottom: 8
   },
   hazardTypeSubLabel: {
-    fontSize: 11.5,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -854,8 +859,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 14,
-    padding: 11,
-    minHeight: 114,
+    padding: 14,
+    minHeight: 154,
     justifyContent: 'space-between'
   },
   hazardTypeCardActive: {
@@ -895,15 +900,15 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   hazardTypeCardLabel: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 3
   },
   hazardTypeCardDesc: {
-    fontSize: 10.5,
+    fontSize: 16,
     color: '#64748B',
-    lineHeight: 14
+    lineHeight: 25
   },
   hazardTypeCardOther: {
     width: '100%',
@@ -939,7 +944,7 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   customTypeSubLabel: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -955,7 +960,7 @@ const styles = StyleSheet.create({
   },
   customTypeInput: {
     flex: 1,
-    fontSize: 13.5,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '600'
   }

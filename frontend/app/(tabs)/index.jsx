@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import {
   Platform,
   Modal
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { socketService } from '../../services/socketService';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../context/AuthContext';
@@ -26,7 +27,7 @@ import { GROUND_HAZARD_TYPES } from '../../constants/disasterTypes';
 import { reverseGeocode } from '../../services/geocodingService';
 import CitizenHomeView from '../../components/CitizenHomeView';
 
-export default function VolunteerHomeScreen() {
+export default function HomeScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
@@ -34,6 +35,10 @@ export default function VolunteerHomeScreen() {
     return <CitizenHomeView user={user} logout={logout} router={router} />;
   }
 
+  return <VolunteerHomeScreen user={user} logout={logout} router={router} />;
+}
+
+function VolunteerHomeScreen({ user, logout, router }) {
   const { location, refreshLocation } = useLocation();
 
   // Form State
@@ -118,22 +123,26 @@ export default function VolunteerHomeScreen() {
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!user?._id) {
+      setRecentReports([]);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [incRes, alertsRes, savedRead] = await Promise.all([
-        incidentService.getIncidents({ limit: 6 }),
-        shelterService.getBroadcasts(),
-        storage.getItem('read_alert_ids')
+        incidentService.getIncidents({ reportedBy: user._id, limit: 4 }),
+        shelterService.getBroadcasts().catch(() => null),
+        storage.getItem('read_alert_ids').catch(() => null)
       ]);
 
       const allIncidents = incRes.data || [];
-      // Prioritize user's own reports if available
+      // Only display reports submitted by the signed-in volunteer.
       const myReports = allIncidents.filter(
         (i) => i.reportedBy?._id === user?._id || i.reportedBy === user?._id
       );
-      const targetList = myReports.length > 0 ? myReports : allIncidents;
       // Strictly show only the last 4 recent submitted reports
-      setRecentReports(targetList.slice(0, 4));
+      setRecentReports(myReports.slice(0, 4));
 
       if (alertsRes?.data) {
         let readIds = [];
@@ -150,11 +159,28 @@ export default function VolunteerHomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [user?._id]);
+
+  useFocusEffect(useCallback(() => {
+    fetchData();
+  }, [fetchData]));
 
   useEffect(() => {
-    fetchData();
-  }, [user]);
+    const socket = socketService.getSocket();
+    const onStatusUpdated = (incident) => {
+      const reporterId = incident.reportedBy?._id || incident.reportedBy;
+      if (reporterId !== user?._id) return;
+      setRecentReports((previous) => previous.map((report) =>
+        report._id === incident._id ? incident : report
+      ));
+    };
+    socket.on('incident_status_updated', onStatusUpdated);
+    socket.on('connect', fetchData);
+    return () => {
+      socket.off('incident_status_updated', onStatusUpdated);
+      socket.off('connect', fetchData);
+    };
+  }, [user?._id, fetchData]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -336,7 +362,7 @@ export default function VolunteerHomeScreen() {
     if (s === 'rejected' || s === 'dismissed') {
       return { label: 'Rejected', bg: '#FEE2E2', text: '#B91C1C' };
     }
-    return { label: 'Under Review', bg: '#FEF3C7', text: '#B45309' };
+    return { label: 'In review', bg: '#FEF3C7', text: '#B45309' };
   };
 
   return (
@@ -368,7 +394,7 @@ export default function VolunteerHomeScreen() {
               <View style={styles.modalDetailRow}>
                 <Ionicons name="shield-checkmark-outline" size={16} color="#16A34A" style={{ marginRight: 6 }} />
                 <Text style={styles.modalDetailLabel}>Status:</Text>
-                <Text style={styles.modalDetailStatus}>Under Review</Text>
+                <Text style={styles.modalDetailStatus}>In review</Text>
               </View>
               <View style={styles.modalDetailRow}>
                 <Ionicons name="location-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
@@ -514,7 +540,7 @@ export default function VolunteerHomeScreen() {
                             >
                               {item.label}
                             </Text>
-                            <Text style={styles.hazardTypeCardDesc} numberOfLines={1}>
+                            <Text style={styles.hazardTypeCardDesc}>
                               {item.description}
                             </Text>
                           </View>
@@ -789,7 +815,7 @@ export default function VolunteerHomeScreen() {
 
                   <View style={styles.reportCardBody}>
                     <View style={styles.reportCardTitleRow}>
-                      <Text style={styles.reportCardTitle} numberOfLines={1}>
+                      <Text style={styles.reportCardTitle} numberOfLines={2}>
                         {report.title || 'Ground Hazard Report'}
                       </Text>
                     </View>
@@ -863,18 +889,18 @@ const styles = StyleSheet.create({
     marginRight: 6
   },
   roleTagText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#1E3A8A',
     letterSpacing: 0.8
   },
   greetingTitle: {
-    fontSize: 22,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A'
   },
   subGreeting: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     fontWeight: '500',
     marginTop: 2
@@ -908,7 +934,7 @@ const styles = StyleSheet.create({
   },
   bellBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   logoutButton: {
@@ -922,7 +948,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -948,12 +974,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   formSectionTitle: {
-    fontSize: 16,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     color: '#0F172A'
   },
   inputLabel: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 8
@@ -968,7 +994,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   titleInput: {
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '600'
   },
@@ -983,13 +1009,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   uploadTitle: {
-    fontSize: 14,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#0F172A',
     marginTop: 8
   },
   uploadSubtitle: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     marginTop: 4
   },
@@ -1030,7 +1056,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC'
   },
   addMoreText: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     color: '#64748B',
     marginTop: 2
@@ -1045,14 +1071,14 @@ const styles = StyleSheet.create({
   descriptionInput: {
     minHeight: 88,
     textAlignVertical: 'top',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '500'
   },
   charCounter: {
     alignSelf: 'flex-end',
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14, lineHeight: 21,
+    color: '#64748B',
     marginTop: 4,
     fontWeight: '600'
   },
@@ -1073,7 +1099,7 @@ const styles = StyleSheet.create({
     flexShrink: 1
   },
   coordinatesPillText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     color: '#B91C1C',
     flexShrink: 1
@@ -1083,7 +1109,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4
   },
   mapFooterNoteText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -1106,7 +1132,7 @@ const styles = StyleSheet.create({
   },
   submitBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     letterSpacing: 0.5
   },
@@ -1117,7 +1143,7 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   viewAllText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#C81E1E'
   },
@@ -1165,7 +1191,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   reportCardTitle: {
-    fontSize: 14,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#0F172A',
     flex: 1
@@ -1176,19 +1202,21 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   reportLocationText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     flex: 1
   },
   reportFooterRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 6
   },
   reportDateText: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14, lineHeight: 21,
+    color: '#64748B',
     fontWeight: '600'
   },
   statusBadge: {
@@ -1197,7 +1225,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   statusBadgeText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   },
   emptyCard: {
@@ -1209,14 +1237,14 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   emptyTitle: {
-    fontSize: 14,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#334155',
     marginTop: 8
   },
   emptySubtitle: {
-    fontSize: 12,
-    color: '#94A3B8',
+    fontSize: 16, lineHeight: 24,
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 4
   },
@@ -1250,17 +1278,17 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
     marginBottom: 8
   },
   modalSubText: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#64748B',
     textAlign: 'center',
-    lineHeight: 19,
+    lineHeight: 24,
     marginBottom: 18
   },
   modalDetailsBox: {
@@ -1274,23 +1302,26 @@ const styles = StyleSheet.create({
     gap: 8
   },
   modalDetailRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center'
   },
   modalDetailLabel: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#64748B',
     marginRight: 6
   },
   modalDetailValue: {
-    fontSize: 12,
+    flexShrink: 1,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#0F172A',
     flex: 1
   },
   modalDetailStatus: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#B45309'
   },
@@ -1311,7 +1342,7 @@ const styles = StyleSheet.create({
   modalPrimaryBtnText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 15
+    fontSize: 16, lineHeight: 24
   },
   modalSecondaryBtn: {
     backgroundColor: '#F1F5F9',
@@ -1324,7 +1355,7 @@ const styles = StyleSheet.create({
   modalSecondaryBtnText: {
     color: '#475569',
     fontWeight: '600',
-    fontSize: 14
+    fontSize: 16, lineHeight: 24
   },
   inlineSuccessBanner: {
     backgroundColor: '#DCFCE7',
@@ -1337,23 +1368,25 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   inlineSuccessTitle: {
-    fontSize: 13,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '700',
     color: '#15803D'
   },
   inlineSuccessText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#166534',
     marginTop: 2
   },
   hazardTypeHeaderRow: {
+    gap: 8,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
     marginBottom: 8
   },
   hazardTypeSubLabel: {
-    fontSize: 11.5,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -1373,8 +1406,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 14,
-    padding: 11,
-    minHeight: 114,
+    padding: 14,
+    minHeight: 154,
     justifyContent: 'space-between'
   },
   hazardTypeCardActive: {
@@ -1414,15 +1447,15 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   hazardTypeCardLabel: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 3
   },
   hazardTypeCardDesc: {
-    fontSize: 10.5,
+    fontSize: 16,
     color: '#64748B',
-    lineHeight: 14
+    lineHeight: 25
   },
   hazardPill: {
     paddingHorizontal: 7,
@@ -1430,7 +1463,7 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   hazardPillText: {
-    fontSize: 10.5,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   },
   hazardTypeCardOther: {
@@ -1467,7 +1500,7 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   customTypeSubLabel: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     fontWeight: '500'
   },
@@ -1483,7 +1516,7 @@ const styles = StyleSheet.create({
   },
   customTypeInput: {
     flex: 1,
-    fontSize: 13.5,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '600'
   }

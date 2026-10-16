@@ -9,7 +9,9 @@ import {
   ActivityIndicator,
   Alert,
   StyleSheet,
-  Platform
+  Platform,
+  Modal,
+  useWindowDimensions
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -37,6 +39,19 @@ export default function DutyOfficerDesktopPortal() {
   const [verificationNotes, setVerificationNotes] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [expandedView, setExpandedView] = useState(null);
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const compactLayout = windowWidth < 1024;
+  const styles = createStyles(compactLayout, windowWidth < 640);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !expandedView) return;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setExpandedView(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expandedView]);
 
   // Profile Dropdown
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -355,6 +370,50 @@ export default function DutyOfficerDesktopPortal() {
 
   return (
     <View style={styles.desktopContainer}>
+      <Modal
+        visible={!!expandedView && !!selectedReport}
+        animationType="fade"
+        onRequestClose={() => setExpandedView(null)}
+      >
+        <View style={styles.expandedContainer}>
+          <View style={styles.expandedToolbar}>
+            <Text style={styles.expandedTitle} numberOfLines={1}>
+              {expandedView === 'photo'
+                ? `Photo ${activePhotoIndex + 1} of ${selectedReport?.mediaUrls?.length || 0}`
+                : 'Hazard Location Map'}
+            </Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close full screen" onPress={() => setExpandedView(null)} style={styles.viewerButton}>
+              <Feather name="x" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          {expandedView === 'photo' ? (
+            <>
+              <Image
+                source={{ uri: selectedReport?.mediaUrls?.[activePhotoIndex]?.url || selectedReport?.mediaUrls?.[0]?.url }}
+                style={styles.expandedPhoto}
+                resizeMode="contain"
+              />
+              {selectedReport?.mediaUrls?.length > 1 && (
+                <View style={styles.photoNavigation}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Previous photo" style={styles.viewerButton} onPress={() => setActivePhotoIndex((index) => (index - 1 + selectedReport.mediaUrls.length) % selectedReport.mediaUrls.length)}>
+                    <Feather name="chevron-left" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Next photo" style={styles.viewerButton} onPress={() => setActivePhotoIndex((index) => (index + 1) % selectedReport.mediaUrls.length)}>
+                    <Feather name="chevron-right" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
+          ) : selectedReport && (
+            <DutyOfficerMap
+              latitude={selectedReport.location?.coordinates?.[1] ?? 6.9452}
+              longitude={selectedReport.location?.coordinates?.[0] ?? 79.8821}
+              address={formatLocationDisplay(selectedReport.location)}
+              height={Math.max(100, windowHeight - 72)}
+            />
+          )}
+        </View>
+      </Modal>
       {/* Top Header Navigation Bar */}
       <View style={styles.topHeader}>
         <View style={styles.headerLeft}>
@@ -425,7 +484,7 @@ export default function DutyOfficerDesktopPortal() {
       {/* Main Body with Sidebar + Content */}
       <View style={styles.bodyRow}>
         {/* Left Sidebar */}
-        <View style={[styles.sidebar, sidebarCollapsed && styles.sidebarCollapsed]}>
+        <View style={[styles.sidebar, (sidebarCollapsed || compactLayout) && styles.sidebarCollapsed]}>
           <TouchableOpacity
             onPress={() => {
               setActiveTab('dashboard');
@@ -442,7 +501,7 @@ export default function DutyOfficerDesktopPortal() {
               color={activeTab === 'dashboard' && !selectedReport ? '#FFFFFF' : '#94A3B8'}
               style={{ marginRight: 12 }}
             />
-            {!sidebarCollapsed && (
+            {!(sidebarCollapsed || compactLayout) && (
               <Text
                 style={[
                   styles.navItemText,
@@ -478,7 +537,7 @@ export default function DutyOfficerDesktopPortal() {
               }
               style={{ marginRight: 12 }}
             />
-            {!sidebarCollapsed && (
+            {!(sidebarCollapsed || compactLayout) && (
               <Text
                 style={[
                   styles.navItemText,
@@ -492,57 +551,6 @@ export default function DutyOfficerDesktopPortal() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => {
-              setActiveTab('all_reports');
-              setReportsSubTab('verified');
-              setSelectedReport(null);
-            }}
-            style={[styles.navItem, reportsSubTab === 'verified' && !selectedReport && styles.navItemActive]}
-          >
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={18}
-              color={reportsSubTab === 'verified' && !selectedReport ? '#FFFFFF' : '#94A3B8'}
-              style={{ marginRight: 12 }}
-            />
-            {!sidebarCollapsed && (
-              <Text
-                style={[
-                  styles.navItemText,
-                  reportsSubTab === 'verified' && !selectedReport && styles.navItemTextActive
-                ]}
-              >
-                Verified Reports
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              setActiveTab('all_reports');
-              setReportsSubTab('rejected');
-              setSelectedReport(null);
-            }}
-            style={[styles.navItem, reportsSubTab === 'rejected' && !selectedReport && styles.navItemActive]}
-          >
-            <Ionicons
-              name="close-circle-outline"
-              size={18}
-              color={reportsSubTab === 'rejected' && !selectedReport ? '#FFFFFF' : '#94A3B8'}
-              style={{ marginRight: 12 }}
-            />
-            {!sidebarCollapsed && (
-              <Text
-                style={[
-                  styles.navItemText,
-                  reportsSubTab === 'rejected' && !selectedReport && styles.navItemTextActive
-                ]}
-              >
-                Rejected Reports
-              </Text>
-            )}
-          </TouchableOpacity>
         </View>
 
         {/* Content Area */}
@@ -657,6 +665,7 @@ export default function DutyOfficerDesktopPortal() {
                     {selectedReport.mediaUrls && selectedReport.mediaUrls.length > 0 ? (
                       <View>
                         {/* Big preview */}
+                        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open photo in full screen" onPress={() => setExpandedView('photo')}>
                         <Image
                           source={{
                             uri:
@@ -667,6 +676,8 @@ export default function DutyOfficerDesktopPortal() {
                           resizeMode="cover"
                         />
 
+                        </TouchableOpacity>
+                        <Text style={{ color: '#64748B', fontSize: 16, marginTop: 6 }}>Click photo to view full screen</Text>
                         {/* Thumbnails strip */}
                         <View style={styles.thumbnailsStrip}>
                           {selectedReport.mediaUrls.map((m, idx) => (
@@ -686,14 +697,20 @@ export default function DutyOfficerDesktopPortal() {
                     ) : (
                       <View style={styles.noPhotoPlaceholder}>
                         <Ionicons name="image-outline" size={32} color="#94A3B8" />
-                        <Text style={{ color: '#94A3B8', marginTop: 6, fontSize: 13 }}>No photos uploaded for this report</Text>
+                        <Text style={{ color: '#94A3B8', marginTop: 6, fontSize: 16 }}>No photos uploaded for this report</Text>
                       </View>
                     )}
                   </View>
 
                   {/* Hazard Location Map View */}
                   <View style={styles.locationMapCard}>
-                    <Text style={styles.cardSectionTitle}>Hazard Location Map</Text>
+                    <View style={styles.mapTitleRow}>
+                      <Text style={styles.cardSectionTitle}>Hazard Location Map</Text>
+                      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Expand map to full screen" onPress={() => setExpandedView('map')} style={styles.expandMapButton}>
+                        <Feather name="maximize" size={16} color="#1D4ED8" />
+                        <Text style={{ color: '#1D4ED8', fontWeight: '600', marginLeft: 6 }}>Expand map</Text>
+                      </TouchableOpacity>
+                    </View>
                     <DutyOfficerMap
                       latitude={selectedReport.location?.coordinates?.[1] || 6.9452}
                       longitude={selectedReport.location?.coordinates?.[0] || 79.8821}
@@ -1161,7 +1178,7 @@ export default function DutyOfficerDesktopPortal() {
 
                           {/* Body */}
                           <View style={styles.cardBody}>
-                            <Text style={styles.cardTitle} numberOfLines={1}>
+                            <Text style={styles.cardTitle} numberOfLines={2}>
                               {report.title || 'Ground Hazard Report'}
                             </Text>
                             <View style={styles.cardLocationRow}>
@@ -1183,7 +1200,8 @@ export default function DutyOfficerDesktopPortal() {
               </View>
 
               {/* Recent Reports - Table View (Mockup Panel 1) */}
-              <View style={styles.tableCardContainer}>
+              <ScrollView horizontal style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, minWidth: 1180 }}>
+<View style={styles.tableCardContainer}>
                 <View style={styles.tableCardHeader}>
                   <Text style={styles.sectionHeading}>Recent Reports</Text>
                   <TouchableOpacity
@@ -1251,6 +1269,7 @@ export default function DutyOfficerDesktopPortal() {
                   );
                 })}
               </View>
+</ScrollView>
             </View>
           ) : (
             /* ========================================================
@@ -1322,7 +1341,8 @@ export default function DutyOfficerDesktopPortal() {
               </View>
 
               {/* Full Desktop Table */}
-              <View style={styles.tableCardContainer}>
+              <ScrollView horizontal style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, minWidth: 1180 }}>
+<View style={styles.tableCardContainer}>
                 <View style={styles.tableRowHeader}>
                   <Text style={[styles.tableTh, { width: 35 }]}>#</Text>
                   <Text style={[styles.tableTh, { flex: 2 }]}>Title</Text>
@@ -1330,13 +1350,13 @@ export default function DutyOfficerDesktopPortal() {
                   <Text style={[styles.tableTh, { flex: 1.5 }]}>Location</Text>
                   <Text style={[styles.tableTh, { flex: 1.5 }]}>Submitted By</Text>
                   <Text style={[styles.tableTh, { flex: 1.5 }]}>Submitted Date</Text>
-                  <Text style={[styles.tableTh, { width: 100 }]}>Status</Text>
-                  <Text style={[styles.tableTh, { width: 70, textAlign: 'center' }]}>Action</Text>
+                  <Text style={[styles.tableTh, { width: 130 }]}>Status</Text>
+                  <Text style={[styles.tableTh, { width: 90, textAlign: 'center' }]}>Action</Text>
                 </View>
 
                 {getFilteredReports().length === 0 ? (
                   <View style={styles.emptyTableState}>
-                    <Text style={{ color: '#64748B', fontSize: 14 }}>No reports found matching your criteria</Text>
+                    <Text style={{ color: '#64748B', fontSize: 16 }}>No reports found matching your criteria</Text>
                   </View>
                 ) : (
                   getFilteredReports().map((report, idx) => {
@@ -1376,7 +1396,7 @@ export default function DutyOfficerDesktopPortal() {
                         <Text style={[styles.tableTd, { flex: 1.5 }]} numberOfLines={1}>
                           {formatDate(report.createdAt)}
                         </Text>
-                        <View style={{ width: 100 }}>
+                        <View style={{ width: 130 }}>
                           <View
                             style={[
                               styles.tableStatusPill,
@@ -1393,7 +1413,7 @@ export default function DutyOfficerDesktopPortal() {
                             </Text>
                           </View>
                         </View>
-                        <View style={{ width: 70, alignItems: 'center' }}>
+                        <View style={{ width: 90, alignItems: 'center' }}>
                           <TouchableOpacity
                             onPress={() => handleOpenReport(report)}
                             style={styles.tableViewBtn}
@@ -1406,6 +1426,7 @@ export default function DutyOfficerDesktopPortal() {
                   })
                 )}
               </View>
+</ScrollView>
             </View>
           )}
         </ScrollView>
@@ -1414,20 +1435,29 @@ export default function DutyOfficerDesktopPortal() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (compact, mobile) => StyleSheet.create({
+  expandedContainer: { flex: 1, backgroundColor: '#0F172A' },
+  expandedToolbar: { height: 72, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  expandedTitle: { color: '#FFFFFF', fontSize: 17,
+    lineHeight: 26, fontWeight: '700', flex: 1 },
+  viewerButton: { padding: 12, borderRadius: 8, backgroundColor: '#334155' },
+  expandedPhoto: { flex: 1, width: '100%' },
+  photoNavigation: { flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 },
+  mapTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  expandMapButton: { flexDirection: 'row', alignItems: 'center', padding: 8, borderRadius: 8, backgroundColor: '#EFF6FF' },
   desktopContainer: {
     flex: 1,
     backgroundColor: '#F8FAFC'
   },
   topHeader: {
-    height: 64,
+    height: 80,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: mobile ? 12 : 24,
     zIndex: 50
   },
   headerLeft: {
@@ -1453,15 +1483,18 @@ const styles = StyleSheet.create({
     marginRight: 10
   },
   brandTitle: {
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: 0.5
   },
   brandSubtitle: {
-    fontSize: 11,
+    display: mobile ? 'none' : 'flex',
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '500',
-    color: '#64748B'
+    color: '#475569'
   },
   headerRight: {
     flexDirection: 'row',
@@ -1492,7 +1525,8 @@ const styles = StyleSheet.create({
   },
   bellBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   userProfilePill: {
@@ -1513,7 +1547,9 @@ const styles = StyleSheet.create({
     marginRight: 8
   },
   userNameText: {
-    fontSize: 13,
+    display: mobile ? 'none' : 'flex',
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A'
   },
@@ -1540,17 +1576,20 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   dropdownName: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A'
   },
   dropdownEmail: {
-    fontSize: 12,
-    color: '#64748B',
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569',
     marginTop: 2
   },
   dropdownRole: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     color: '#2563EB',
     fontWeight: '600',
     marginTop: 4
@@ -1563,7 +1602,8 @@ const styles = StyleSheet.create({
   dropdownLogoutText: {
     color: '#DC2626',
     fontWeight: '700',
-    fontSize: 13
+    fontSize: 16,
+    lineHeight: 24
   },
   bodyRow: {
     flex: 1,
@@ -1590,17 +1630,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E3A8A'
   },
   navItemText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '600',
-    color: '#94A3B8'
+    color: '#CBD5E1'
   },
   navItemTextActive: {
     color: '#FFFFFF',
     fontWeight: '700'
   },
   mainContent: {
+    alignSelf: 'center',
+    maxWidth: 1440,
+    width: '100%',
     flexGrow: 1,
-    padding: 24,
+    padding: mobile ? 16 : 32,
     backgroundColor: '#F8FAFC'
   },
   loadingContainer: {
@@ -1617,13 +1661,15 @@ const styles = StyleSheet.create({
     gap: 12
   },
   pageTitle: {
-    fontSize: 22,
+    fontSize: 28,
+    lineHeight: 38,
     fontWeight: '800',
     color: '#0F172A'
   },
   pageSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569',
     marginTop: 4
   },
   todayPill: {
@@ -1649,7 +1695,8 @@ const styles = StyleSheet.create({
     marginRight: 8
   },
   todayPillText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#334155'
   },
@@ -1663,7 +1710,8 @@ const styles = StyleSheet.create({
     marginLeft: 8
   },
   slstBadgeText: {
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800',
     color: '#2563EB',
     letterSpacing: 0.5
@@ -1699,12 +1747,14 @@ const styles = StyleSheet.create({
   },
   statNumber: {
     fontSize: 22,
+    lineHeight: 33,
     fontWeight: '800'
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '600',
-    color: '#64748B',
+    color: '#475569',
     marginTop: 2
   },
   searchBarRow: {
@@ -1717,7 +1767,7 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     flex: 1,
-    minWidth: 260,
+    minWidth: mobile ? 180 : 260,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -1725,15 +1775,17 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderRadius: 12,
     paddingHorizontal: 14,
-    height: 42
+    height: 52
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#0F172A',
     outlineStyle: 'none'
   },
   filterPillsRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     gap: 8
   },
@@ -1750,7 +1802,8 @@ const styles = StyleSheet.create({
     borderColor: '#0F172A'
   },
   filterPillText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '600',
     color: '#475569'
   },
@@ -1761,7 +1814,8 @@ const styles = StyleSheet.create({
     marginBottom: 14
   },
   sectionHeading: {
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -1771,21 +1825,21 @@ const styles = StyleSheet.create({
     gap: 16
   },
   reportGridCard: {
-    width: 250,
+    width: mobile ? '100%' : 320,
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: mobile ? '100%' : 320, height: 3 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2
   },
   cardImageWrapper: {
     width: '100%',
-    height: 125,
+    height: 160,
     position: 'relative'
   },
   cardImage: {
@@ -1802,7 +1856,8 @@ const styles = StyleSheet.create({
   },
   cardDisasterBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   cardTimeBadge: {
@@ -1816,14 +1871,16 @@ const styles = StyleSheet.create({
   },
   cardTimeBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '600'
   },
   cardBody: {
-    padding: 12
+    padding: 16
   },
   cardTitle: {
-    fontSize: 13,
+    fontSize: 18,
+    lineHeight: 26,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 4
@@ -1834,17 +1891,20 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   cardLocationText: {
-    fontSize: 11,
-    color: '#64748B',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#475569',
     fontWeight: '600',
     flex: 1
   },
   cardSnippet: {
-    fontSize: 11,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#475569',
-    lineHeight: 16
   },
   tableCardContainer: {
+    flex: 1,
+    minWidth: 1180,
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
@@ -1865,7 +1925,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   viewAllLink: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#2563EB'
   },
@@ -1879,32 +1940,36 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E2E8F0'
   },
   tableTh: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800',
-    color: '#64748B',
+    color: '#475569',
     textTransform: 'uppercase',
     letterSpacing: 0.5
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 18,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9'
   },
   tableTd: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#475569'
   },
   tableTdBold: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A'
   },
   tableSubtext: {
-    fontSize: 10,
-    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#475569',
     marginTop: 2
   },
   tableTypePill: {
@@ -1915,7 +1980,8 @@ const styles = StyleSheet.create({
   },
   tableTypePillText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   tableStatusPill: {
@@ -1925,18 +1991,20 @@ const styles = StyleSheet.create({
     borderRadius: 12
   },
   tableStatusPillText: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   tableViewBtn: {
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 6,
-    paddingVertical: 4,
+    paddingVertical: 10,
     paddingHorizontal: 12
   },
   tableViewBtnText: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '700',
     color: '#2563EB'
   },
@@ -1945,10 +2013,11 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   reportsTabsRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
-    gap: 20
+    gap: mobile ? 12 : 24
   },
   reportsTabBtn: {
     paddingVertical: 12,
@@ -1959,9 +2028,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#2563EB'
   },
   reportsTabBtnText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '600',
-    color: '#64748B'
+    color: '#475569'
   },
   reportsTabBtnTextActive: {
     color: '#2563EB',
@@ -1982,6 +2052,7 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: 18,
+    lineHeight: 27,
     fontWeight: '800',
     color: '#0F172A'
   },
@@ -1998,7 +2069,8 @@ const styles = StyleSheet.create({
   viewInMapBtnText: {
     color: '#DC2626',
     fontWeight: '700',
-    fontSize: 12
+    fontSize: 16,
+    lineHeight: 24
   },
   verifiedNoticeBanner: {
     backgroundColor: '#DCFCE7',
@@ -2011,12 +2083,14 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   verifiedNoticeTitle: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#15803D'
   },
   verifiedNoticeDesc: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#166534',
     marginTop: 2
   },
@@ -2031,12 +2105,14 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   rejectedNoticeTitle: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#DC2626'
   },
   rejectedNoticeDesc: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#991B1B',
     marginTop: 2
   },
@@ -2049,7 +2125,8 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   lockedHeaderTagTextVerified: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '700',
     color: '#15803D'
   },
@@ -2062,22 +2139,25 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   lockedHeaderTagTextRejected: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '700',
     color: '#DC2626'
   },
   detailsSplitGrid: {
-    flexDirection: 'row',
-    gap: 20,
+    flexDirection: compact ? 'column' : 'row',
+    gap: 24,
     alignItems: 'flex-start'
   },
   detailsLeftCol: {
+    width: compact ? '100%' : undefined,
     flex: 3,
-    minWidth: 320
+    minWidth: 0
   },
   detailsRightCol: {
+    width: compact ? '100%' : undefined,
     flex: 2,
-    minWidth: 300
+    minWidth: 0
   },
   metaTagsRow: {
     flexDirection: 'row',
@@ -2093,20 +2173,24 @@ const styles = StyleSheet.create({
   },
   disasterTypeBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   reportIdText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
-    color: '#64748B'
+    color: '#475569'
   },
   submittedDateText: {
-    fontSize: 12,
-    color: '#94A3B8'
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569'
   },
   detailsTitle: {
-    fontSize: 20,
+    fontSize: 26,
+    lineHeight: 36,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 6
@@ -2117,18 +2201,21 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   detailsLocationText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '600',
-    color: '#64748B'
+    color: '#475569'
   },
   detailsDescription: {
-    fontSize: 13,
+    maxWidth: 760,
+    fontSize: 18,
+    lineHeight: 29,
     color: '#334155',
-    lineHeight: 20,
     marginBottom: 18
   },
   cardSectionTitle: {
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 12
@@ -2149,6 +2236,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A'
   },
   thumbnailsStrip: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     gap: 10
   },
@@ -2185,8 +2273,9 @@ const styles = StyleSheet.create({
     marginTop: 8
   },
   mapFootnoteText: {
-    fontSize: 11,
-    color: '#64748B',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#475569',
     fontWeight: '500'
   },
   reporterInfoCard: {
@@ -2211,12 +2300,14 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   reporterNameText: {
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A'
   },
   reporterRoleText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#2563EB',
     fontWeight: '600',
     marginBottom: 6
@@ -2227,7 +2318,8 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   reporterContactText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#475569'
   },
   verificationCard: {
@@ -2243,7 +2335,8 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   verificationCardTitle: {
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 16
@@ -2297,14 +2390,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444'
   },
   radioOptionTitle: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A'
   },
   radioOptionSubtext: {
-    fontSize: 12,
-    color: '#64748B',
-    lineHeight: 17,
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569',
     paddingLeft: 26
   },
   notesGroup: {
@@ -2312,7 +2406,8 @@ const styles = StyleSheet.create({
     marginBottom: 18
   },
   notesLabel: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 6
@@ -2323,15 +2418,17 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderRadius: 10,
     padding: 12,
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#0F172A',
     minHeight: 100,
     textAlignVertical: 'top',
     outlineStyle: 'none'
   },
   notesCharCounter: {
-    fontSize: 11,
-    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#475569',
     textAlign: 'right',
     marginTop: 4
   },
@@ -2348,7 +2445,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   cancelActionBtnText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#475569'
   },
@@ -2360,7 +2458,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   submitActionBtnText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#FFFFFF'
   },
@@ -2373,14 +2472,16 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A',
     marginTop: 10
   },
   emptySubtitle: {
-    fontSize: 12,
-    color: '#64748B',
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569',
     marginTop: 4,
     textAlign: 'center'
   },
@@ -2413,7 +2514,8 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   lockedStatusBadgeText: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '700',
     color: '#475569'
   },
@@ -2436,14 +2538,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start'
   },
   lockedOutcomeTitle: {
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '800',
     marginBottom: 4
   },
   lockedOutcomeSubtext: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#475569',
-    lineHeight: 17
   },
   lockedDetailsList: {
     borderTopWidth: 1,
@@ -2458,17 +2561,20 @@ const styles = StyleSheet.create({
     paddingVertical: 6
   },
   lockedDetailLabel: {
-    fontSize: 12,
-    color: '#64748B',
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#475569',
     fontWeight: '600'
   },
   lockedDetailValue: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#334155',
     fontWeight: '500'
   },
   lockedDetailValueBold: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#0F172A',
     fontWeight: '700'
   },
@@ -2478,14 +2584,16 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   lockedPillText: {
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: '800'
   },
   lockedNotesContainer: {
     marginBottom: 16
   },
   lockedNotesLabel: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 6
@@ -2500,9 +2608,9 @@ const styles = StyleSheet.create({
     padding: 12
   },
   lockedNotesText: {
-    fontSize: 12,
+    fontSize: 16,
+    lineHeight: 24,
     color: '#334155',
-    lineHeight: 18,
     flex: 1
   },
   lockedInfoNotice: {
@@ -2515,8 +2623,9 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   lockedInfoNoticeText: {
-    fontSize: 11,
-    color: '#64748B',
+    fontSize: 14,
+    lineHeight: 21,
+    color: '#475569',
     flex: 1
   },
   lockedDoneBtn: {
@@ -2530,7 +2639,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC'
   },
   lockedDoneBtnText: {
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#475569'
   }

@@ -61,6 +61,7 @@ const createIncident = async (req, res, next) => {
       },
       mediaUrls,
       reportedBy: req.user._id,
+      status: 'under_review',
       peopleTrappedCount: validatedData.peopleTrappedCount || 0,
       immediateNeeds: validatedData.immediateNeeds || [],
       reportNumber

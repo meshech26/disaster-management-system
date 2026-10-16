@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout, switchRoleDemo } = useAuth();
+  const { user, logout } = useAuth();
 
   const [addContactModal, setAddContactModal] = useState(false);
   const [contactName, setContactName] = useState('');
@@ -74,43 +74,6 @@ export default function ProfileScreen() {
                 <Text className="text-slate-300 text-xs">{user.agency}</Text>
               </View>
             )}
-          </View>
-        </View>
-
-        {/* Role Simulator Switcher for Reviewing all user capabilities */}
-        <View className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-5">
-          <Text className="text-slate-300 font-bold text-xs uppercase tracking-wider mb-2">
-            Switch Active Role (Demo Mode):
-          </Text>
-          <View className="flex-row space-x-2">
-            {[
-              { role: 'citizen', label: 'Citizen', icon: 'person' },
-              { role: 'responder', label: 'Responder', icon: 'shield' },
-              { role: 'admin', label: 'HQ Admin', icon: 'speedometer' }
-            ].map((item) => (
-              <TouchableOpacity
-                key={item.role}
-                onPress={() => switchRoleDemo(item.role)}
-                className={`flex-1 py-2.5 rounded-xl items-center border mr-1.5 ${
-                  user?.role === item.role
-                    ? 'bg-red-600 border-red-500'
-                    : 'bg-slate-800 border-slate-700'
-                }`}
-              >
-                <Ionicons
-                  name={item.icon}
-                  size={16}
-                  color={user?.role === item.role ? 'white' : '#94A3B8'}
-                />
-                <Text
-                  className={`text-xs font-bold mt-1 ${
-                    user?.role === item.role ? 'text-white' : 'text-slate-400'
-                  }`}
-                >
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
           </View>
         </View>
 

@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { socketService } from '../services/socketService';
 import { broadcastService } from '../services/broadcastService';
+import { canReceiveImmediateAlert, immediateAlertKey } from '../utils/emergencyAudience';
 
 export default function EmergencyAlertModal() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function EmergencyAlertModal() {
   const [secondsLeft, setSecondsLeft] = useState(10);
 
   const countdownTimerRef = useRef(null);
+  const autoDismissTimerRef = useRef(null);
   const progressAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const seenAlertIdsRef = useRef(new Set());
@@ -57,28 +59,9 @@ export default function EmergencyAlertModal() {
   }, [visible]);
 
   const showAlert = (alert) => {
-    // Only show to citizens, volunteers, or users matching affected district
-    if (!alert) return;
-    const alertId = alert._id || alert.id;
-    if (alertId && seenAlertIdsRef.current.has(alertId)) {
-      return;
-    }
-
-    const userDistrict = (user?.district || '').toLowerCase().trim();
-    const affectedDistrict = (alert.affectedDistrict || 'All Districts').toLowerCase().trim();
-
-    // Check district targeting: if alert is for all districts or matches user district
-    const isTargeted =
-      affectedDistrict === 'all districts' ||
-      !userDistrict ||
-      !affectedDistrict ||
-      userDistrict === affectedDistrict ||
-      affectedDistrict.includes(userDistrict) ||
-      userDistrict.includes(affectedDistrict);
-
-    if (!isTargeted) {
-      return;
-    }
+    if (!canReceiveImmediateAlert(user, alert)) return;
+    const alertId = immediateAlertKey(alert);
+    if (seenAlertIdsRef.current.has(alertId)) return;
 
     setCurrentAlert(alert);
     setSecondsLeft(10);
@@ -96,29 +79,26 @@ export default function EmergencyAlertModal() {
       useNativeDriver: false
     }).start();
 
-    // 10-second countdown interval
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current);
-    }
-
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    const closesAt = Date.now() + 10000;
     countdownTimerRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownTimerRef.current);
-          handleDismiss();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      setSecondsLeft(Math.max(0, Math.ceil((closesAt - Date.now()) / 1000)));
+    }, 250);
+    autoDismissTimerRef.current = setTimeout(handleDismiss, 10000);
   };
 
   const handleDismiss = () => {
-    if (countdownTimerRef.current) {
-      clearInterval(countdownTimerRef.current);
-    }
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
+    progressAnim.stopAnimation();
     setVisible(false);
   };
+
+  useEffect(() => {
+    handleDismiss();
+    seenAlertIdsRef.current.clear();
+  }, [user?._id, user?.role, user?.district]);
 
   const handleViewDetails = () => {
     handleDismiss();
@@ -127,6 +107,7 @@ export default function EmergencyAlertModal() {
 
   // 1. Socket listener for real-time immediate alerts
   useEffect(() => {
+    if (!['citizen', 'volunteer'].includes(user?.role)) return;
     const socket = socketService.getSocket();
     if (!socket) return;
 
@@ -138,6 +119,7 @@ export default function EmergencyAlertModal() {
 
     return () => {
       socket.off('immediate_emergency_alert', handleImmediateAlert);
+      if (autoDismissTimerRef.current) clearTimeout(autoDismissTimerRef.current);
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
       }
@@ -146,7 +128,7 @@ export default function EmergencyAlertModal() {
 
   // 2. Fetch on login or app launch if there is an active immediate alert
   useEffect(() => {
-    if (!user) return;
+    if (!['citizen', 'volunteer'].includes(user?.role)) return;
 
     let isMounted = true;
     const checkActiveImmediate = async () => {
@@ -173,7 +155,7 @@ export default function EmergencyAlertModal() {
     };
   }, [user]);
 
-  if (!visible || !currentAlert) {
+  if (!visible || !currentAlert || !canReceiveImmediateAlert(user, currentAlert)) {
     return null;
   }
 

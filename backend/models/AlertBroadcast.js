@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { affectedGeometrySchema } = require('../validators/affectedAreaValidator');
 
 const AlertBroadcastSchema = new mongoose.Schema(
   {
@@ -63,6 +64,7 @@ const AlertBroadcastSchema = new mongoose.Schema(
       type: String,
       default: 'All Districts'
     },
+    immediateTriggeredAt: Date,
     isImmediateAlert: {
       type: Boolean,
       default: false
@@ -77,6 +79,17 @@ const AlertBroadcastSchema = new mongoose.Schema(
     },
     affectedArea: {
       address: String,
+      geometry: {
+        type: { type: String, enum: ['Polygon'] },
+        coordinates: {
+          type: [[[Number]]],
+          default: undefined,
+          validate: {
+            validator: (coordinates) => coordinates == null || affectedGeometrySchema.safeParse({ type: 'Polygon', coordinates }).success,
+            message: 'Invalid affected area boundary'
+          }
+        }
+      },
       coordinates: [Number], // [lng, lat]
       radiusKm: { type: Number, default: 20 }
     },

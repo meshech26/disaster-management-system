@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
   },
   newBadgeText: {
     color: '#FFFFFF',
-    fontSize: 14, lineHeight: 21,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800'
   },
   alertCardRead: {
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9'
   },
   cardMarkReadText: {
-    fontSize: 14, lineHeight: 21,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#64748B'
   },
@@ -550,13 +550,13 @@ const styles = StyleSheet.create({
   },
   alertTitle: {
     flexShrink: 1,
-    fontSize: 18, lineHeight: 27,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A'
   },
   alertMessage: {
-    fontSize: 16,
-    lineHeight: 25,
+    fontSize: 18,
+    lineHeight: 27,
     color: '#334155',
     marginBottom: 10
   },
@@ -569,16 +569,16 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   instructionsTitle: {
-    fontSize: 18, lineHeight: 27,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#64748B',
     marginBottom: 4,
     textTransform: 'uppercase'
   },
   instructionLine: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#334155',
-    lineHeight: 25
+    lineHeight: 27
   },
   cardFooter: {
     gap: 8,
@@ -589,7 +589,7 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
   timeText: {
-    fontSize: 14, lineHeight: 21,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     fontWeight: '600'
   },
@@ -599,7 +599,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   badgeText: {
-    fontSize: 14, lineHeight: 21,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   emptyContainer: {
@@ -609,7 +609,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24
   },
   emptyTitle: {
-    fontSize: 18, lineHeight: 27,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '700',
     color: '#334155',
     marginTop: 12
@@ -634,7 +634,7 @@ const styles = StyleSheet.create({
     marginRight: 10
   },
   eventNotificationTitle: {
-    fontSize: 18, lineHeight: 27,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#15803D'
   },

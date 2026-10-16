@@ -1,3 +1,7 @@
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const { JWT_SECRET } = require('../config/env');
+const { normalizeDistrict, isPublicRecipient, districtRoom } = require('../services/emergencyAudience');
 let ioInstance = null;
 
 const setupSocket = (io) => {
@@ -6,14 +10,29 @@ const setupSocket = (io) => {
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] Client connected: ${socket.id}`);
 
-    // Join role-specific channels (e.g. responders, admins)
-    socket.on('join_role_room', ({ role, userId }) => {
-      if (role === 'responder' || role === 'admin') {
-        socket.join(`role_${role}s`);
-        console.log(`[Socket.IO] User ${userId} joined room role_${role}s`);
+    let identityVersion = 0;
+    const leaveIdentityRooms = () => {
+      identityVersion += 1;
+      for (const room of socket.rooms) {
+        if (room.startsWith('role_') || room.startsWith('user_') || room.startsWith('emergency_')) socket.leave(room);
       }
-      if (userId) {
-        socket.join(`user_${userId}`);
+    };
+    socket.on('leave_role_room', leaveIdentityRooms);
+    socket.on('join_role_room', async ({ token } = {}) => {
+      leaveIdentityRooms();
+      const version = identityVersion;
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findById(decoded.id).select('role district');
+        if (!user || version !== identityVersion) return;
+        if (['responder', 'admin'].includes(user.role)) socket.join(`role_${user.role}s`);
+        socket.join(`user_${user._id}`);
+        if (isPublicRecipient(user.role)) {
+          socket.join('emergency_recipients');
+          if (normalizeDistrict(user.district)) socket.join(districtRoom(user.district));
+        }
+      } catch (error) {
+        // Invalid or missing sessions cannot join recipient rooms.
       }
     });
 

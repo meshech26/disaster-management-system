@@ -7,7 +7,7 @@ class SocketService {
   }
 
   connect() {
-    if (this.socket && this.socket.connected) {
+    if (this.socket) {
       return this.socket;
     }
 
@@ -35,9 +35,9 @@ class SocketService {
     return this.socket;
   }
 
-  joinRole(role, userId) {
+  joinRole(role, userId, token) {
     if (this.socket) {
-      this.socket.emit('join_role_room', { role, userId });
+      this.socket.emit('join_role_room', { role, userId, token });
     }
   }
 

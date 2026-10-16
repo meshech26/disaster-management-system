@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,19 @@ import {
   Alert,
   Platform,
   Dimensions,
-  Linking
+  Linking,
+  useWindowDimensions
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { alertService } from '../services/alertService';
 import { shelterService } from '../services/shelterService';
 import EmergencyInstructions from './EmergencyInstructions';
+import { useFocusEffect } from 'expo-router';
+import { storage } from '../utils/storage';
+import { socketService } from '../services/socketService';
+import { getCitizenGreeting, countUnreadAlerts } from '../utils/citizenHeader';
+import DmcDistrictMap from './DmcDistrictMap';
+import { getWarningLocation, getWarningImage } from '../utils/warningDisplay';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -30,6 +37,13 @@ export default function CitizenHomeView({ user, logout, router }) {
   // Data
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState([]);
+  const [readAlertIds, setReadAlertIds] = useState([]);
+  const [headerTime, setHeaderTime] = useState(new Date());
+  const unreadCount = countUnreadAlerts(alerts, readAlertIds);
+  useEffect(() => {
+    const timer = setInterval(() => setHeaderTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const [shelters, setShelters] = useState([]);
 
   // Contacts Modal
@@ -37,23 +51,53 @@ export default function CitizenHomeView({ user, logout, router }) {
 
   // Selected Alert Detail Modal
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const [alertMapExpanded, setAlertMapExpanded] = useState(false);
+  const { height: viewportHeight } = useWindowDimensions();
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !selectedAlert) return;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        if (alertMapExpanded) setAlertMapExpanded(false);
+        else setSelectedAlert(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedAlert, alertMapExpanded]);
+  useEffect(() => { if (!selectedAlert) setAlertMapExpanded(false); }, [selectedAlert]);
+  const renderWarningMap = (height) => {
+    const location = getWarningLocation(selectedAlert);
+    if (!location.coordinates) return <Text style={styles.alertModalDesc}>Map coordinates are unavailable for this warning.</Text>;
+    return <DmcDistrictMap
+      districtName={selectedAlert.affectedDistrict}
+      latitude={location.coordinates[1]}
+      longitude={location.coordinates[0]}
+      address={location.address}
+      affectedGeometry={selectedAlert.affectedArea?.geometry || null}
+      height={height}
+      interactive
+      showRadius={false}
+      editable={false}
+    />;
+  };
 
   // Selected Shelter Detail Modal
   const [selectedShelter, setSelectedShelter] = useState(null);
 
-  const displayName = user?.name ? user.name.split(' ')[0] : 'Sahan';
+  const displayName = user?.name ? user.name.split(' ')[0] : 'Citizen';
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [alertsRes, sheltersRes] = await Promise.all([
+      const [alertsRes, sheltersRes, savedRead] = await Promise.all([
         alertService.getActiveAlerts(),
-        shelterService.getShelters({ district: user?.district || 'Colombo' })
+        shelterService.getShelters({ district: user?.district || 'Colombo' }).catch(() => ({ data: [] })),
+        storage.getItem('read_alert_ids')
       ]);
+      try {
+        const ids = JSON.parse(savedRead || '[]');
+        setReadAlertIds(Array.isArray(ids) ? ids : []);
+      } catch { setReadAlertIds([]); }
       const rawAlerts = alertsRes.data || [];
       // Prioritize Critical -> High -> Medium/Advisory
       const severityScore = { critical: 3, high: 2, medium: 1, low: 0 };
@@ -71,7 +115,25 @@ export default function CitizenHomeView({ user, logout, router }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.district]);
+
+  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+  useEffect(() => {
+    const socket = socketService.getSocket();
+    const events = ['emergency_alert_broadcast', 'warning_completed', 'connect'];
+    events.forEach((event) => socket.on(event, loadData));
+    return () => events.forEach((event) => socket.off(event, loadData));
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!selectedAlert) return;
+    const id = selectedAlert._id || selectedAlert.id;
+    if (!id) return;
+    if (readAlertIds.includes(id)) return;
+    const updated = [...readAlertIds, id];
+    setReadAlertIds(updated);
+    storage.setItem('read_alert_ids', JSON.stringify(updated));
+  }, [selectedAlert, readAlertIds]);
 
   // Helper images for alerts matching mock
   const getAlertImage = (type) => {
@@ -141,11 +203,13 @@ export default function CitizenHomeView({ user, logout, router }) {
         <ScrollView style={styles.scrollArea} contentContainerStyle={[styles.scrollContent, styles.homeScrollContent]}>
           {/* Top Greeting Bar */}
           <View style={styles.topGreetingBar}>
-            <View>
-              <Text style={styles.greetingTitle}>
-                Good Morning,{'\n'}
-                <Text style={styles.greetingName}>{displayName} 👋</Text>
-              </Text>
+            <View style={styles.citizenGreetingBody}>
+              <View style={styles.citizenRoleRow}>
+                <View style={styles.citizenStatusDot} />
+                <Text style={styles.citizenRoleLabel}>CITIZEN PORTAL</Text>
+              </View>
+              <Text style={styles.greetingName}>{getCitizenGreeting(headerTime)}, {displayName} {String.fromCodePoint(0x1F44B)}</Text>
+              <Text style={styles.citizenDistrict}>{user?.district ? `${user.district.replace(/\s+district$/i, '')} District` : 'District not set'}</Text>
             </View>
 
             <View style={styles.topActionsRow}>
@@ -153,10 +217,10 @@ export default function CitizenHomeView({ user, logout, router }) {
                 onPress={() => router.push('/(tabs)/alerts')}
                 style={styles.bellBtn}
               >
-                <Ionicons name="notifications" size={24} color="#1E3A8A" />
-                <View style={styles.bellBadge}>
-                  <Text style={styles.bellBadgeText}>3</Text>
-                </View>
+                <Ionicons name="notifications-outline" size={22} color="#334155" />
+                {unreadCount > 0 && <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                </View>}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -170,28 +234,6 @@ export default function CitizenHomeView({ user, logout, router }) {
               </TouchableOpacity>
             </View>
           </View>
-
-          {/* RED ACTIVE DISASTER BANNER */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => {
-              if (alerts.length > 0) setSelectedAlert(alerts[0]);
-            }}
-            style={styles.redAlertBanner}
-          >
-            <View style={styles.redAlertLeft}>
-              <View style={styles.warningIconWhiteCircle}>
-                <Ionicons name="warning" size={20} color="#DC2626" />
-              </View>
-              <View>
-                <Text style={styles.redAlertTitle}>
-                  {alerts.length || 2} Active Disaster Alerts
-                </Text>
-                <Text style={styles.redAlertSubtitle}>in your area</Text>
-              </View>
-            </View>
-            <Feather name="chevron-right" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
 
           {/* ACTIVE DISASTER ALERTS SECTION */}
           <View style={styles.sectionHeaderRow}>
@@ -220,7 +262,7 @@ export default function CitizenHomeView({ user, logout, router }) {
                     style={styles.alertCard}
                   >
                     <Image
-                      source={{ uri: getAlertImage(alert.disasterType) }}
+                      source={{ uri: getWarningImage(alert) || getAlertImage(alert.disasterType) }}
                       style={styles.alertCardImg}
                     />
                     <View style={styles.alertCardBody}>
@@ -229,7 +271,7 @@ export default function CitizenHomeView({ user, logout, router }) {
                           {badge.label}
                         </Text>
                       </View>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
+                      <Text style={styles.cardTitle} numberOfLines={2}>
                         {alert.title}
                       </Text>
                       <View style={styles.cardLocationRow}>
@@ -555,23 +597,24 @@ export default function CitizenHomeView({ user, logout, router }) {
       {/* ========================================================================= */}
       <Modal
         visible={!!selectedAlert}
-        transparent
+        transparent={!alertMapExpanded}
         animationType="fade"
-        onRequestClose={() => setSelectedAlert(null)}
+        onRequestClose={() => alertMapExpanded ? setAlertMapExpanded(false) : setSelectedAlert(null)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
+        <View style={alertMapExpanded ? styles.alertMapFullscreen : styles.modalBackdrop}>
+          <View style={alertMapExpanded ? styles.alertMapFullscreenBody : [styles.modalCard, styles.alertDetailCard]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Disaster Warning</Text>
-              <TouchableOpacity onPress={() => setSelectedAlert(null)}>
+              <Text style={[styles.modalTitle, { flex: 1 }]}>{alertMapExpanded ? `Affected Area - ${getWarningLocation(selectedAlert).address}` : 'Disaster Warning'}</Text>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={alertMapExpanded ? 'Exit full screen map' : 'Close warning'} onPress={() => alertMapExpanded ? setAlertMapExpanded(false) : setSelectedAlert(null)}>
+                {alertMapExpanded && <Text style={styles.alertExpandText}>Exit full screen</Text>}
                 <Feather name="x" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
 
-            {selectedAlert && (
-              <ScrollView style={{ maxHeight: 380 }}>
+            {selectedAlert && (alertMapExpanded ? renderWarningMap(Math.max(160, viewportHeight - 100)) : (
+              <ScrollView style={{ flexShrink: 1 }}>
                 <Image
-                  source={{ uri: getAlertImage(selectedAlert.disasterType) }}
+                  source={{ uri: getWarningImage(selectedAlert) || getAlertImage(selectedAlert.disasterType) }}
                   style={styles.alertModalImg}
                 />
                 <Text style={styles.alertModalTitle}>{selectedAlert.title}</Text>
@@ -579,6 +622,17 @@ export default function CitizenHomeView({ user, logout, router }) {
                   📍 {selectedAlert.affectedArea?.address || `${selectedAlert.affectedDistrict} District`}
                 </Text>
                 <Text style={styles.alertModalDesc}>{selectedAlert.message}</Text>
+                <View style={styles.alertMapCard}>
+                  <View style={styles.alertMapHeadingRow}>
+                    <Text style={styles.alertMapTitle}>Affected Area - {getWarningLocation(selectedAlert).address}</Text>
+                    <TouchableOpacity accessibilityRole="button" accessibilityLabel="Expand affected area map" onPress={() => setAlertMapExpanded(true)} style={styles.alertExpandButton}>
+                      <Feather name="maximize" size={18} color="#1D4ED8" />
+                      <Text style={styles.alertExpandText}>Expand map</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.alertMapSubtitle}>{selectedAlert.title}{selectedAlert.affectedArea?.geometry ? ' - Custom boundary drawn' : ' - Reported location'}</Text>
+                  {renderWarningMap(380)}
+                </View>
 
                 {selectedAlert.actionInstructions && selectedAlert.actionInstructions.length > 0 && (
                   <View style={styles.modalInstructionsBox}>
@@ -589,14 +643,14 @@ export default function CitizenHomeView({ user, logout, router }) {
                   </View>
                 )}
               </ScrollView>
-            )}
+            ))}
 
-            <TouchableOpacity
+            {!alertMapExpanded && <TouchableOpacity
               onPress={() => setSelectedAlert(null)}
               style={styles.modalDoneBtn}
             >
               <Text style={styles.modalDoneBtnText}>Understood</Text>
-            </TouchableOpacity>
+            </TouchableOpacity>}
           </View>
         </View>
       </Modal>
@@ -663,6 +717,20 @@ export default function CitizenHomeView({ user, logout, router }) {
 }
 
 const styles = StyleSheet.create({
+  citizenGreetingBody: { flex: 1, minWidth: 180 },
+  citizenRoleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
+  citizenStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
+  citizenRoleLabel: { color: '#1E3A8A', fontSize: 14, lineHeight: 21, fontWeight: '800', letterSpacing: 0.6 },
+  citizenDistrict: { color: '#64748B', fontSize: 16, lineHeight: 24, fontWeight: '500', marginTop: 3 },
+  alertDetailCard: { maxWidth: 960, maxHeight: '92%' },
+  alertMapFullscreen: { flex: 1, backgroundColor: '#FFFFFF', padding: 16 },
+  alertMapFullscreenBody: { flex: 1 },
+  alertMapCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, padding: 14, marginBottom: 16 },
+  alertMapHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 },
+  alertMapTitle: { flex: 1, fontSize: 18, lineHeight: 27, fontWeight: '700', color: '#1E3A8A' },
+  alertExpandButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, backgroundColor: '#EFF6FF', borderRadius: 8 },
+  alertExpandText: { color: '#1D4ED8', fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  alertMapSubtitle: { color: '#64748B', fontSize: 14, lineHeight: 21, marginVertical: 8 },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC'
@@ -671,8 +739,11 @@ const styles = StyleSheet.create({
     flex: 1
   },
   scrollContent: {
-    padding: 18,
-    paddingBottom: 90
+    alignSelf: 'center',
+    maxWidth: 960,
+    width: '100%',
+    padding: 20,
+    paddingBottom: 120
   },
   homeScrollContent: {
     paddingBottom: 160
@@ -680,7 +751,7 @@ const styles = StyleSheet.create({
   emergencyContactsButton: {
     position: 'absolute',
     right: 18,
-    bottom: 84,
+    bottom: 100,
     width: 60,
     height: 60,
     borderRadius: 30,
@@ -695,20 +766,17 @@ const styles = StyleSheet.create({
     shadowRadius: 8
   },
   topGreetingBar: {
+    gap: 12,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
     paddingTop: 8
   },
-  greetingTitle: {
-    color: '#0F172A',
-    fontSize: 16,
-    fontWeight: '500'
-  },
   greetingName: {
     color: '#0F172A',
-    fontSize: 22,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '900'
   },
   topActionsRow: {
@@ -719,7 +787,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
@@ -738,51 +808,18 @@ const styles = StyleSheet.create({
   },
   bellBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   profileLogoutBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  redAlertBanner: {
-    backgroundColor: '#E11D48',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    shadowColor: '#E11D48',
-    shadowOpacity: 0.25,
-    shadowRadius: 8
-  },
-  redAlertLeft: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  warningIconWhiteCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12
-  },
-  redAlertTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800'
-  },
-  redAlertSubtitle: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 12
+    alignItems: 'center'
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -792,12 +829,12 @@ const styles = StyleSheet.create({
   },
   sectionHeading: {
     color: '#0F172A',
-    fontSize: 18,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800'
   },
   viewAllText: {
     color: '#2563EB',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   noAlertsBox: {
@@ -810,8 +847,9 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   noAlertsText: {
+    flexShrink: 1,
     color: '#64748B',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     marginTop: 8
   },
   alertsList: {
@@ -849,12 +887,12 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   cardBadgeText: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   cardTitle: {
     color: '#0F172A',
-    fontSize: 14,
+    fontSize: 18, lineHeight: 27,
     fontWeight: '800',
     marginBottom: 4
   },
@@ -864,8 +902,9 @@ const styles = StyleSheet.create({
     marginBottom: 3
   },
   cardLocationText: {
+    flexShrink: 1,
     color: '#64748B',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '500'
   },
   cardTimeRow: {
@@ -873,8 +912,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   cardTimeText: {
-    color: '#94A3B8',
-    fontSize: 11
+    color: '#64748B',
+    fontSize: 14, lineHeight: 21
   },
   screenHeader: {
     flexDirection: 'row',
@@ -887,7 +926,7 @@ const styles = StyleSheet.create({
   },
   screenHeaderTitle: {
     color: '#0F172A',
-    fontSize: 20,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '900'
   },
   segmentToggleBox: {
@@ -908,7 +947,7 @@ const styles = StyleSheet.create({
   },
   segmentBtnText: {
     color: '#64748B',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   segmentBtnTextActive: {
@@ -970,7 +1009,7 @@ const styles = StyleSheet.create({
   },
   nearbySheltersHeading: {
     color: '#0F172A',
-    fontSize: 17,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     marginBottom: 12
   },
@@ -1000,7 +1039,7 @@ const styles = StyleSheet.create({
   },
   shelterName: {
     color: '#0F172A',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     marginBottom: 4
   },
@@ -1011,7 +1050,7 @@ const styles = StyleSheet.create({
   },
   shelterDistanceText: {
     color: '#64748B',
-    fontSize: 11
+    fontSize: 14, lineHeight: 21
   },
   shelterBedsRow: {
     flexDirection: 'row',
@@ -1019,7 +1058,7 @@ const styles = StyleSheet.create({
   },
   shelterBedsText: {
     color: '#64748B',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600'
   },
   bottomTabBar: {
@@ -1027,7 +1066,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 64,
+    height: 80,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
@@ -1045,7 +1084,7 @@ const styles = StyleSheet.create({
   },
   tabItemText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600',
     marginTop: 2
   },
@@ -1061,10 +1100,11 @@ const styles = StyleSheet.create({
     padding: 20
   },
   modalCard: {
+    maxHeight: '90%',
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 680,
     padding: 20,
     shadowColor: '#000',
     shadowOpacity: 0.15,
@@ -1081,7 +1121,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     color: '#0F172A',
-    fontSize: 17,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800'
   },
   contactList: {
@@ -1104,16 +1144,16 @@ const styles = StyleSheet.create({
   },
   contactName: {
     color: '#0F172A',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   contactDesc: {
-    color: '#94A3B8',
-    fontSize: 11
+    color: '#64748B',
+    fontSize: 14, lineHeight: 21
   },
   contactNumber: {
     color: '#DC2626',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800'
   },
   modalDoneBtn: {
@@ -1125,7 +1165,7 @@ const styles = StyleSheet.create({
   },
   modalDoneBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   alertModalImg: {
@@ -1136,19 +1176,20 @@ const styles = StyleSheet.create({
   },
   alertModalTitle: {
     color: '#0F172A',
-    fontSize: 17,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     marginBottom: 6
   },
   alertModalLocation: {
+    flexShrink: 1,
     color: '#64748B',
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     marginBottom: 10
   },
   alertModalDesc: {
     color: '#334155',
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 18,
+    lineHeight: 27,
     marginBottom: 14
   },
   modalInstructionsBox: {
@@ -1159,14 +1200,14 @@ const styles = StyleSheet.create({
   },
   modalInstructionsHeading: {
     color: '#1E3A8A',
-    fontSize: 12,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     marginBottom: 6
   },
   modalInstBullet: {
     color: '#1E293B',
-    fontSize: 12,
-    lineHeight: 18
+    fontSize: 16,
+    lineHeight: 24
   },
   shelterBedDetailBox: {
     flexDirection: 'row',
@@ -1183,12 +1224,12 @@ const styles = StyleSheet.create({
   },
   shelterBedStatLabel: {
     color: '#64748B',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600'
   },
   shelterBedStatValue: {
     color: '#0F172A',
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     marginTop: 4
   },
@@ -1202,7 +1243,7 @@ const styles = StyleSheet.create({
   },
   shelterCallBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   }
 });

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 
 export const SRI_LANKA_DISTRICTS = [
@@ -35,8 +35,30 @@ export default function DmcDistrictMap({
   longitude,
   address = 'Colombo District',
   height = 240,
-  interactive = false
+  interactive = false,
+  showRadius = true,
+  editable = false,
+  affectedGeometry = null,
+  onAreaChange
 }) {
+  const frameRef = useRef(null);
+  const geometryRef = useRef(affectedGeometry);
+  geometryRef.current = affectedGeometry;
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const receive = (event) => {
+      if (event.source !== frameRef.current?.contentWindow) return;
+      if (event.data?.type === 'dmc-map-ready') {
+        frameRef.current.contentWindow.postMessage({ type: 'dmc-area-sync', geometry: geometryRef.current }, '*');
+      }
+      if (editable && event.data?.type === 'dmc-area-changed') onAreaChange?.(event.data.geometry);
+    };
+    window.addEventListener('message', receive);
+    return () => window.removeEventListener('message', receive);
+  }, [editable, onAreaChange]);
+  useEffect(() => {
+    if (Platform.OS === 'web') frameRef.current?.contentWindow?.postMessage({ type: 'dmc-area-sync', geometry: affectedGeometry }, '*');
+  }, [affectedGeometry]);
   const selectedDistrictInfo = useMemo(() => {
     const found = SRI_LANKA_DISTRICTS.find(
       (d) => d.name.toLowerCase() === (districtName || '').toLowerCase()
@@ -97,13 +119,74 @@ export default function DmcDistrictMap({
           }).addTo(map);
 
           // Danger circle highlighting affected district radius
-          const dangerCircle = L.circle([lat, lng], {
+          if (${showRadius}) L.circle([lat, lng], {
             color: '#DC2626',
             fillColor: '#F87171',
             fillOpacity: 0.28,
             weight: 2,
             radius: 8500
           }).addTo(map);
+
+          const areaLayer = L.featureGroup().addTo(map);
+          const draftLayer = L.featureGroup().addTo(map);
+          let points = [];
+          let drawing = false;
+          const areaStyle = { color: '#DC2626', fillColor: '#F87171', fillOpacity: 0.28, weight: 3 };
+          function renderArea(geometry) {
+            areaLayer.clearLayers();
+            if (geometry) {
+              const boundary = L.geoJSON(geometry, { style: areaStyle }).addTo(areaLayer);
+              if (!${editable} && boundary.getBounds().isValid()) {
+                map.closePopup();
+                map.fitBounds(boundary.getBounds(), { padding: [28, 28], maxZoom: 16 });
+              }
+            }
+          }
+          function publish(geometry) {
+            renderArea(geometry);
+            window.parent.postMessage({ type: 'dmc-area-changed', geometry }, '*');
+          }
+          window.addEventListener('message', (event) => {
+            if (event.source === window.parent && event.data?.type === 'dmc-area-sync') renderArea(event.data.geometry);
+          });
+          if (${editable}) {
+            const tools = L.control({ position: 'topright' });
+            tools.onAdd = () => {
+              const box = L.DomUtil.create('div');
+              box.style.cssText = 'padding:10px;background:white;border-radius:8px;max-width:260px;box-shadow:0 2px 8px #0003;font:14px/1.5 sans-serif';
+              box.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px"><button id="area-draw">Draw area</button><button id="area-finish" disabled>Finish</button><button id="area-undo" disabled>Undo</button><button id="area-cancel" disabled>Cancel</button><button id="area-clear">Clear</button></div><div id="area-help" style="margin-top:6px">Draw the affected boundary on the map.</div>';
+              L.DomEvent.disableClickPropagation(box);
+              L.DomEvent.disableScrollPropagation(box);
+              return box;
+            };
+            tools.addTo(map);
+            const button = (name) => document.getElementById('area-' + name);
+            const help = button('help');
+            function updateTools() {
+              button('finish').disabled = !drawing || points.length < 3;
+              button('undo').disabled = !drawing || !points.length;
+              button('cancel').disabled = !drawing;
+              map.getContainer().style.cursor = drawing ? 'crosshair' : '';
+            }
+            function renderDraft() {
+              draftLayer.clearLayers();
+              if (points.length > 1) L.polyline(points, { color: '#DC2626', dashArray: '6 4' }).addTo(draftLayer);
+              points.forEach((point) => L.circleMarker(point, { radius: 5, color: '#DC2626' }).addTo(draftLayer));
+              updateTools();
+            }
+            function stop() { drawing = false; points = []; draftLayer.clearLayers(); updateTools(); }
+            button('draw').onclick = () => { drawing = true; points = []; map.closePopup(); renderDraft(); help.textContent = 'Click at least 3 boundary points, then Finish.'; };
+            button('finish').onclick = () => {
+              if (points.length < 3) return;
+              const geometry = L.polygon(points).toGeoJSON().geometry;
+              stop(); publish(geometry); help.textContent = 'Affected area selected. It will be saved with this warning.';
+            };
+            button('undo').onclick = () => { points.pop(); renderDraft(); };
+            button('cancel').onclick = () => { stop(); help.textContent = 'Drawing cancelled.'; };
+            button('clear').onclick = () => { stop(); publish(null); help.textContent = 'Affected area cleared.'; };
+            map.on('click', (event) => { if (drawing) { points.push(event.latlng); renderDraft(); } });
+          }
+          window.parent.postMessage({ type: 'dmc-map-ready' }, '*');
 
           const redIcon = L.icon({
             iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
@@ -120,12 +203,13 @@ export default function DmcDistrictMap({
       </body>
       </html>
     `;
-  }, [targetLat, targetLng, targetZoom, districtName, address, interactive]);
+  }, [targetLat, targetLng, targetZoom, districtName, address, interactive, showRadius, editable]);
 
   if (Platform.OS === 'web') {
     return (
       <View style={[styles.container, { height }]}>
         <iframe
+          ref={frameRef}
           srcDoc={mapHtml}
           style={{ width: '100%', height: '100%', border: 'none', borderRadius: 12 }}
           title="DMC District Map"

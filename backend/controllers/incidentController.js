@@ -1,4 +1,5 @@
 const Incident = require('../models/Incident');
+const { getUnpublishedVerifiedReportFilter } = require('../services/verifiedReportService');
 const ApiResponse = require('../utils/apiResponse');
 const { createIncidentSchema, updateIncidentStatusSchema } = require('../validators/incidentValidator');
 const { uploadBufferToCloudinary } = require('../services/cloudinaryService');
@@ -96,6 +97,9 @@ const getIncidents = async (req, res, next) => {
 
     if (reportedBy) query.reportedBy = reportedBy;
     if (status) query.status = status;
+    if (req.query.excludePublishedWarnings === 'true') {
+      Object.assign(query, await getUnpublishedVerifiedReportFilter());
+    }
     if (req.query.forwardedToDmc !== undefined) {
       query.forwardedToDmc = req.query.forwardedToDmc === 'true';
     }

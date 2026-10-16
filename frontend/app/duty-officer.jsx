@@ -436,13 +436,6 @@ export default function DutyOfficerDesktopPortal() {
         </View>
 
         <View style={styles.headerRight}>
-          {/* Notification Bell */}
-          <TouchableOpacity style={styles.notificationBtn}>
-            <Ionicons name="notifications-outline" size={20} color="#0F172A" />
-            <View style={styles.bellBadge}>
-              <Text style={styles.bellBadgeText}>1</Text>
-            </View>
-          </TouchableOpacity>
 
           {/* User Profile Dropdown Pill */}
           <View style={{ position: 'relative' }}>
@@ -1500,34 +1493,6 @@ const createStyles = (compact, mobile) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16
-  },
-  notificationBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#F1F5F9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative'
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 17,
-    height: 17,
-    borderRadius: 9,
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF'
-  },
-  bellBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: '800'
   },
   userProfilePill: {
     flexDirection: 'row',

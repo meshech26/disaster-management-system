@@ -10,18 +10,32 @@ import {
   Alert,
   StyleSheet,
   Platform,
-  Modal
+  Modal,
+  useWindowDimensions
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
+import { getHomeRoute } from '../utils/authRoute';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { incidentService } from '../services/incidentService';
 import { broadcastService } from '../services/broadcastService';
 import DmcDistrictMap, { SRI_LANKA_DISTRICTS } from '../components/DmcDistrictMap';
 import { formatTimeAgo } from '../utils/formatters';
+import { printCompletedWarning } from '../utils/printCompletedWarning';
 
 export default function DmcOfficerDesktopPortal() {
+  const { user, token, isLoading } = useAuth();
+  if (isLoading) return <ActivityIndicator size="large" color="#2563EB" />;
+  if (!user || !token) return <Redirect href="/(auth)/login" />;
+  if (!['dmc_officer', 'admin'].includes(user.role)) return <Redirect href={getHomeRoute(user.role)} />;
+  return <DmcOfficerPortalContent />;
+}
+
+function DmcOfficerPortalContent() {
   const router = useRouter();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const compactLayout = viewportWidth < 1024;
+  const styles = createStyles(compactLayout, viewportWidth < 640);
   const { user, logout } = useAuth();
 
   // Navigation state: 'dashboard' | 'verified_incidents' | 'create_warning' | 'active_warnings' | 'completed_warnings' | 'reports' | 'settings'
@@ -41,6 +55,7 @@ export default function DmcOfficerDesktopPortal() {
   // Data Loading States
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [warningNotice, setWarningNotice] = useState('');
   const [stats, setStats] = useState({
     verifiedIncidents: 0,
     draftWarnings: 0,
@@ -57,12 +72,21 @@ export default function DmcOfficerDesktopPortal() {
   // Inspection & Creation state
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [expandedReview, setExpandedReview] = useState(null);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !expandedReview) return;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setExpandedReview(null); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [expandedReview]);
 
   // Create Warning Form State
   const [warningTitle, setWarningTitle] = useState('');
   const [hazardType, setHazardType] = useState('flood');
   const [severityLevel, setSeverityLevel] = useState('critical'); // 'critical' | 'high' | 'medium' | 'low'
   const [selectedDistrict, setSelectedDistrict] = useState('Colombo');
+  const [affectedGeometry, setAffectedGeometry] = useState(null);
+  useEffect(() => { setAffectedGeometry(null); }, [selectedDistrict]);
   const [warningMessage, setWarningMessage] = useState('');
   const [actionInstructions, setActionInstructions] = useState([
     'Avoid the area and stay indoors.',
@@ -81,10 +105,39 @@ export default function DmcOfficerDesktopPortal() {
   // Completed Warning Inspection
   const [selectedCompletedWarning, setSelectedCompletedWarning] = useState(null);
 
+  // Active Warning Map Preview
+  const [selectedActiveWarning, setSelectedActiveWarning] = useState(null);
+
   // Official Report Generation Modal State
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportType, setReportType] = useState('Event Reports (PDF)');
   const [generatedReportData, setGeneratedReportData] = useState(null);
+
+  // Reset create-warning form to blank defaults (called after a successful broadcast / draft save)
+  const resetWarningForm = () => {
+    setExpandedReview(null);
+    setDistrictDropdownOpen(false);
+    setHazardDropdownOpen(false);
+    setSelectedActiveWarning(null);
+    setWarningTitle('');
+    setHazardType('flood');
+    setSeverityLevel('critical');
+    setSelectedDistrict('Colombo');
+    setAffectedGeometry(null);
+    setWarningMessage('');
+    setActionInstructions([
+      'Avoid the area and stay indoors.',
+      'Water levels are rising fast; shut off ground electricity.',
+      'Follow guidance from local Grama Niladhari and rescue forces.'
+    ]);
+    setEmergencyHotlines([
+      { name: 'DMC Hotline', phone: '117 / +94 11 213 6136' },
+      { name: 'Suwa Seriya Ambulance', phone: '1990' },
+      { name: 'Police Emergency', phone: '119 / 112' }
+    ]);
+    setBasedOnReport(null);
+    setSelectedIncident(null);
+  };
 
   // Fetch all initial data
   const loadDashboardData = async () => {
@@ -92,7 +145,7 @@ export default function DmcOfficerDesktopPortal() {
       setLoading(true);
       const [statsRes, incidentsRes, activeRes, draftRes, completedRes] = await Promise.all([
         broadcastService.getBroadcastStats(),
-        incidentService.getIncidents({ status: 'verified', limit: 50 }),
+        incidentService.getIncidents({ status: 'verified', excludePublishedWarnings: true, limit: 50 }),
         broadcastService.getAllBroadcasts({ status: 'active' }),
         broadcastService.getAllBroadcasts({ status: 'draft' }),
         broadcastService.getAllBroadcasts({ status: 'completed' })
@@ -122,13 +175,12 @@ export default function DmcOfficerDesktopPortal() {
   // Format SLST date and time strings
   const formattedSLSTDate = currentDateTime.toLocaleDateString('en-GB', {
     timeZone: 'Asia/Colombo',
-    weekday: 'short',
     day: '2-digit',
     month: 'short',
     year: 'numeric'
   });
 
-  const formattedSLSTTime = currentDateTime.toLocaleTimeString('en-GB', {
+  const formattedSLSTTime = currentDateTime.toLocaleTimeString('en-US', {
     timeZone: 'Asia/Colombo',
     hour: '2-digit',
     minute: '2-digit',
@@ -138,6 +190,7 @@ export default function DmcOfficerDesktopPortal() {
 
   // Switch to Create Warning prefilled from verified report
   const handleStartCreateWarning = (incident) => {
+    setAffectedGeometry(null);
     setBasedOnReport(incident);
     setSelectedIncident(incident);
     const titleType =
@@ -182,12 +235,17 @@ export default function DmcOfficerDesktopPortal() {
 
     try {
       setActionLoading(true);
-      await broadcastService.createBroadcast({
+      const result = await broadcastService.createBroadcast({
         title: warningTitle.trim(),
         message: warningMessage || `Draft warning for ${selectedDistrict}.`,
         disasterType: hazardType,
         severity: severityLevel,
         affectedDistrict: selectedDistrict,
+        affectedArea: {
+          address: basedOnReport?.location?.address || selectedDistrict,
+          coordinates: basedOnReport?.location?.coordinates,
+          geometry: affectedGeometry || undefined
+        },
         status: 'draft',
         isImmediateAlert: false,
         broadcastToAll: false,
@@ -196,11 +254,15 @@ export default function DmcOfficerDesktopPortal() {
         emergencyHotlines
       });
 
-      Alert.alert('Success', 'Warning saved as Draft successfully.');
+      if (!result?.success || !result.data?._id) throw new Error(result?.message || 'The server did not confirm the draft was saved.');
+      setWarningNotice('Warning saved as draft. It has not been published.');
+      resetWarningForm();
+      setActiveNav('active_warnings');
       await loadDashboardData();
-      setActiveNav('dashboard');
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to save draft');
+      const message = err.message || 'Failed to save draft';
+      if (Platform.OS === 'web') window.alert(message);
+      else Alert.alert('Error', message);
     } finally {
       setActionLoading(false);
     }
@@ -215,12 +277,17 @@ export default function DmcOfficerDesktopPortal() {
 
     try {
       setActionLoading(true);
-      await broadcastService.createBroadcast({
+      const result = await broadcastService.createBroadcast({
         title: warningTitle.trim(),
         message: warningMessage || `Emergency hazard warning active in ${selectedDistrict}.`,
         disasterType: hazardType,
         severity: severityLevel,
         affectedDistrict: selectedDistrict,
+        affectedArea: {
+          address: basedOnReport?.location?.address || selectedDistrict,
+          coordinates: basedOnReport?.location?.coordinates,
+          geometry: affectedGeometry || undefined
+        },
         status: 'active',
         isImmediateAlert: false,
         broadcastToAll: true,
@@ -229,14 +296,26 @@ export default function DmcOfficerDesktopPortal() {
         emergencyHotlines
       });
 
-      Alert.alert(
-        'Warning Broadcasted',
-        `Warning "${warningTitle}" is now live and published to all citizens and volunteers.`
-      );
-      await loadDashboardData();
+      if (!result?.success || !result.data?._id) {
+        throw new Error(result?.message || 'The server did not confirm that the warning was saved.');
+      }
+      const savedWarning = result.data;
+      const publishedReportId = savedWarning.incidentId?._id || savedWarning.incidentId || basedOnReport?._id;
+      if (publishedReportId) {
+        setVerifiedIncidents((previous) => previous.filter((report) => report._id !== publishedReportId));
+        if (verifiedIncidents.some((report) => report._id === publishedReportId)) {
+          setStats((previous) => ({ ...previous, verifiedIncidents: Math.max(0, previous.verifiedIncidents - 1) }));
+        }
+      }
+      setWarningNotice('Warning saved and broadcast successfully.');
+      resetWarningForm();
+      setActiveWarningsList((previous) => [savedWarning, ...previous.filter((warning) => warning._id !== savedWarning._id)]);
       setActiveNav('active_warnings');
+      await loadDashboardData();
     } catch (err) {
-      Alert.alert('Error', err.message || 'Failed to broadcast warning');
+      const message = err.message || 'Failed to broadcast warning';
+      if (Platform.OS === 'web') window.alert(message);
+      else Alert.alert('Error', message);
     } finally {
       setActionLoading(false);
     }
@@ -259,6 +338,11 @@ export default function DmcOfficerDesktopPortal() {
         disasterType: hazardType,
         severity: severityLevel,
         affectedDistrict: selectedDistrict,
+        affectedArea: {
+          address: basedOnReport?.location?.address || selectedDistrict,
+          coordinates: basedOnReport?.location?.coordinates,
+          geometry: affectedGeometry || undefined
+        },
         status: 'active',
         isImmediateAlert: true,
         broadcastToAll: false,
@@ -271,6 +355,7 @@ export default function DmcOfficerDesktopPortal() {
         'Immediate Alert Dispatched',
         `High-priority emergency alert sent to citizens & volunteers in ${selectedDistrict} District with a 10-second auto-dismiss popup and push siren.`
       );
+      resetWarningForm();
       await loadDashboardData();
       setActiveNav('active_warnings');
     } catch (err) {
@@ -357,6 +442,7 @@ export default function DmcOfficerDesktopPortal() {
     setGeneratedReportData({
       reportId: `DMC-REP-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`,
       title: target.title,
+      message: target.message,
       disasterType: target.disasterType,
       affectedDistrict: target.affectedDistrict || 'Colombo',
       issuedAt: target.createdAt || new Date(),
@@ -412,6 +498,56 @@ export default function DmcOfficerDesktopPortal() {
 
   return (
     <View style={styles.rootContainer}>
+      <Modal visible={!!expandedReview} animationType="fade" onRequestClose={() => setExpandedReview(null)}>
+        <View style={styles.reviewFullscreen}>
+          <View style={styles.reviewViewerToolbar}>
+            <Text style={styles.reviewViewerTitle} numberOfLines={1}>
+              {expandedReview === 'photo' ? `Photo evidence ${activePhotoIndex + 1} of ${selectedIncident?.mediaUrls?.length || 0}` : expandedReview === 'warning-map' ? `Affected area - ${selectedDistrict}` : 'Hazard Location Map'}
+            </Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Exit full screen" onPress={() => setExpandedReview(null)} style={styles.reviewViewerButton}>
+              <Feather name="minimize" size={20} color="#FFFFFF" />
+              <Text style={styles.reviewExitText}>Exit full screen</Text>
+            </TouchableOpacity>
+          </View>
+          {expandedReview === 'photo' ? (
+            <>
+              <Image source={{ uri: selectedIncident?.mediaUrls?.[activePhotoIndex]?.url }} resizeMode="contain" style={styles.reviewFullscreenPhoto} />
+              {selectedIncident?.mediaUrls?.length > 1 && (
+                <View style={styles.reviewPhotoNavigation}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Previous photo" style={styles.reviewViewerButton} onPress={() => setActivePhotoIndex((index) => (index - 1 + selectedIncident.mediaUrls.length) % selectedIncident.mediaUrls.length)}>
+                    <Feather name="chevron-left" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Next photo" style={styles.reviewViewerButton} onPress={() => setActivePhotoIndex((index) => (index + 1) % selectedIncident.mediaUrls.length)}>
+                    <Feather name="chevron-right" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </>
+          ) : expandedReview === 'warning-map' ? (
+            <DmcDistrictMap
+              districtName={selectedDistrict}
+              latitude={basedOnReport?.location?.coordinates?.[1]}
+              longitude={basedOnReport?.location?.coordinates?.[0]}
+              address={basedOnReport?.location?.address || selectedDistrict}
+              height={Math.max(100, viewportHeight - 80)}
+              interactive
+              showRadius={false}
+              editable
+              affectedGeometry={affectedGeometry}
+              onAreaChange={setAffectedGeometry}
+            />
+          ) : expandedReview === 'map' && selectedIncident ? (
+            <DmcDistrictMap
+              districtName={selectedIncident.location?.address || 'Colombo'}
+              latitude={selectedIncident.location?.coordinates?.[1]}
+              longitude={selectedIncident.location?.coordinates?.[0]}
+              address={selectedIncident.location?.address || 'Colombo'}
+              height={Math.max(100, viewportHeight - 80)}
+              interactive
+             showRadius={false} />
+          ) : null}
+        </View>
+      </Modal>
       {/* ================= TOP BRANDING & STATUS HEADER ================= */}
       <View style={styles.topHeaderBar}>
         <View style={styles.headerLeftBrand}>
@@ -429,32 +565,20 @@ export default function DmcOfficerDesktopPortal() {
             <Text style={styles.topBrandSubtitle}>Disaster Management System</Text>
           </View>
         </View>
-
-        {/* Center: National Mission Motto */}
-        <View style={styles.headerCenterMotto}>
-          <Text style={styles.mottoText}>
-            Early Warnings  •  Safer Communities  •  A Resilient Sri Lanka
-          </Text>
-        </View>
+        
 
         {/* Right: Live SLST Clock & Officer Profile */}
         <View style={styles.headerRightSection}>
           {/* Live SLST Clock */}
           <View style={styles.slstClockBox}>
             <View style={styles.liveClockPulseDot} />
-            <View>
-              <Text style={styles.slstClockTime}>{formattedSLSTTime}</Text>
-              <Text style={styles.slstClockDate}>{formattedSLSTDate} (SLST)</Text>
+            <Feather name="calendar" size={14} color="#64748B" style={{ marginRight: 6 }} />
+            <Text style={styles.slstClockTime}>Today {formattedSLSTDate}, {formattedSLSTTime}</Text>
+            <View style={styles.slstBadge}>
+              <Text style={styles.slstBadgeText}>SLST</Text>
             </View>
           </View>
-
-          {/* Bell Notifications */}
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
-            <View style={styles.bellBadge}>
-              <Text style={styles.bellBadgeText}>4</Text>
-            </View>
-          </TouchableOpacity>
+          
 
           {/* User Profile Pill */}
           <TouchableOpacity
@@ -482,26 +606,8 @@ export default function DmcOfficerDesktopPortal() {
                 <Text style={styles.dropdownEmail}>{user?.email || 'dmcofficer@dmc.gov.lk'}</Text>
                 <Text style={styles.dropdownRole}>DMC National Operations Centre</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowProfileMenu(false);
-                  router.push('/duty-officer');
-                }}
-                style={styles.dropdownItem}
-              >
-                <Feather name="shield" size={16} color="#1E3A8A" style={{ marginRight: 10 }} />
-                <Text style={styles.dropdownItemText}>Switch to Duty Officer Portal</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowProfileMenu(false);
-                  router.push('/(tabs)');
-                }}
-                style={styles.dropdownItem}
-              >
-                <Feather name="smartphone" size={16} color="#1E3A8A" style={{ marginRight: 10 }} />
-                <Text style={styles.dropdownItemText}>Switch to Mobile Citizen View</Text>
-              </TouchableOpacity>
+              
+              
               <TouchableOpacity onPress={handleLogout} style={[styles.dropdownItem, styles.dropdownItemLogout]}>
                 <Feather name="log-out" size={16} color="#DC2626" style={{ marginRight: 10 }} />
                 <Text style={styles.dropdownItemLogoutText}>Sign Out</Text>
@@ -514,7 +620,7 @@ export default function DmcOfficerDesktopPortal() {
       {/* ================= MAIN WORKSPACE BODY ================= */}
       <View style={styles.mainWorkspace}>
         {/* ================= LEFT SIDEBAR NAVIGATION ================= */}
-        <View style={[styles.sidebar, sidebarCollapsed && styles.sidebarCollapsed]}>
+        <View style={[styles.sidebar, (sidebarCollapsed || compactLayout) && styles.sidebarCollapsed]}>
           <ScrollView contentContainerStyle={styles.sidebarContent}>
             {/* Nav Items */}
             <TouchableOpacity
@@ -527,7 +633,7 @@ export default function DmcOfficerDesktopPortal() {
                 color={activeNav === 'dashboard' ? '#FFFFFF' : '#94A3B8'}
                 style={styles.navIcon}
               />
-              {!sidebarCollapsed && (
+              {!(sidebarCollapsed || compactLayout) && (
                 <Text style={[styles.navText, activeNav === 'dashboard' && styles.navTextActive]}>
                   Dashboard
                 </Text>
@@ -544,7 +650,7 @@ export default function DmcOfficerDesktopPortal() {
                 color={activeNav === 'verified_incidents' || activeNav === 'review_report' ? '#FFFFFF' : '#94A3B8'}
                 style={styles.navIcon}
               />
-              {!sidebarCollapsed && (
+              {!(sidebarCollapsed || compactLayout) && (
                 <View style={styles.navTextWithBadge}>
                   <Text style={[styles.navText, (activeNav === 'verified_incidents' || activeNav === 'review_report') && styles.navTextActive]}>
                     Verified Incidents
@@ -556,25 +662,7 @@ export default function DmcOfficerDesktopPortal() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                setBasedOnReport(null);
-                setActiveNav('create_warning');
-              }}
-              style={[styles.navItem, activeNav === 'create_warning' && styles.navItemActive]}
-            >
-              <Feather
-                name="plus-circle"
-                size={18}
-                color={activeNav === 'create_warning' ? '#FFFFFF' : '#94A3B8'}
-                style={styles.navIcon}
-              />
-              {!sidebarCollapsed && (
-                <Text style={[styles.navText, activeNav === 'create_warning' && styles.navTextActive]}>
-                  Create Warning
-                </Text>
-              )}
-            </TouchableOpacity>
+            
 
             <TouchableOpacity
               onPress={() => setActiveNav('active_warnings')}
@@ -586,7 +674,7 @@ export default function DmcOfficerDesktopPortal() {
                 color={activeNav === 'active_warnings' ? '#FFFFFF' : '#94A3B8'}
                 style={styles.navIcon}
               />
-              {!sidebarCollapsed && (
+              {!(sidebarCollapsed || compactLayout) && (
                 <View style={styles.navTextWithBadge}>
                   <Text style={[styles.navText, activeNav === 'active_warnings' && styles.navTextActive]}>
                     Active Warnings
@@ -608,7 +696,7 @@ export default function DmcOfficerDesktopPortal() {
                 color={activeNav === 'completed_warnings' ? '#FFFFFF' : '#94A3B8'}
                 style={styles.navIcon}
               />
-              {!sidebarCollapsed && (
+              {!(sidebarCollapsed || compactLayout) && (
                 <View style={styles.navTextWithBadge}>
                   <Text style={[styles.navText, activeNav === 'completed_warnings' && styles.navTextActive]}>
                     Completed Warnings
@@ -630,33 +718,18 @@ export default function DmcOfficerDesktopPortal() {
                 color={activeNav === 'reports' ? '#FFFFFF' : '#94A3B8'}
                 style={styles.navIcon}
               />
-              {!sidebarCollapsed && (
+              {!(sidebarCollapsed || compactLayout) && (
                 <Text style={[styles.navText, activeNav === 'reports' && styles.navTextActive]}>
                   Reports
                 </Text>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setActiveNav('settings')}
-              style={[styles.navItem, activeNav === 'settings' && styles.navItemActive]}
-            >
-              <Feather
-                name="settings"
-                size={18}
-                color={activeNav === 'settings' ? '#FFFFFF' : '#94A3B8'}
-                style={styles.navIcon}
-              />
-              {!sidebarCollapsed && (
-                <Text style={[styles.navText, activeNav === 'settings' && styles.navTextActive]}>
-                  Settings
-                </Text>
-              )}
-            </TouchableOpacity>
+            
           </ScrollView>
 
           {/* Sidebar Bottom Footer */}
-          {!sidebarCollapsed && (
+          {!(sidebarCollapsed || compactLayout) && (
             <View style={styles.sidebarFooter}>
               <View style={styles.systemStatusRow}>
                 <View style={styles.greenOnlineDot} />
@@ -937,10 +1010,14 @@ export default function DmcOfficerDesktopPortal() {
                       <Text style={styles.subCardTitle}>Photo Evidence</Text>
                       {selectedIncident.mediaUrls && selectedIncident.mediaUrls.length > 0 ? (
                         <>
-                          <Image
-                            source={{ uri: selectedIncident.mediaUrls[activePhotoIndex]?.url }}
-                            style={styles.heroMainImage}
-                          />
+                          <TouchableOpacity accessibilityRole="button" accessibilityLabel="View photo evidence full screen" onPress={() => setExpandedReview('photo')}>
+                            <Image
+                              source={{ uri: selectedIncident.mediaUrls[activePhotoIndex]?.url }}
+                              style={styles.heroMainImage}
+                              resizeMode="cover"
+                            />
+                          </TouchableOpacity>
+                          <Text style={styles.reviewPhotoHint}>Click photo to view full screen</Text>
                           <ScrollView horizontal style={styles.thumbStrip}>
                             {selectedIncident.mediaUrls.map((media, idx) => (
                               <TouchableOpacity
@@ -966,15 +1043,21 @@ export default function DmcOfficerDesktopPortal() {
 
                     {/* Right: Hazard Location Map */}
                     <View style={styles.mapColumn}>
-                      <Text style={styles.subCardTitle}>Hazard Location Map</Text>
+                      <View style={styles.reviewMapHeading}>
+                        <Text style={styles.subCardTitle}>Hazard Location Map</Text>
+                        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Expand report map" style={styles.reviewExpandButton} onPress={() => setExpandedReview('map')}>
+                          <Feather name="maximize" size={18} color="#1D4ED8" />
+                          <Text style={styles.reviewExpandText}>Expand map</Text>
+                        </TouchableOpacity>
+                      </View>
                       <DmcDistrictMap
                         districtName={selectedIncident.location?.address || 'Colombo'}
                         latitude={selectedIncident.location?.coordinates?.[1]}
                         longitude={selectedIncident.location?.coordinates?.[0]}
                         address={selectedIncident.location?.address || 'Colombo'}
-                        height={280}
+                        height={380}
                         interactive={true}
-                      />
+                       showRadius={false} />
                       <View style={styles.mapCaptionBox}>
                         <Feather name="info" size={14} color="#1E3A8A" style={{ marginRight: 6 }} />
                         <Text style={styles.mapCaptionText}>
@@ -1175,11 +1258,24 @@ export default function DmcOfficerDesktopPortal() {
                       </View>
 
                       {/* Interactive Visual Map Preview */}
-                      <Text style={styles.fieldLabel}>District Alert Preview: {selectedDistrict}</Text>
+                      <View style={styles.reviewMapHeading}>
+                        <Text style={styles.fieldLabel}>District Alert Preview: {selectedDistrict}</Text>
+                        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Expand warning map" style={styles.reviewExpandButton} onPress={() => setExpandedReview('warning-map')}>
+                          <Feather name="maximize" size={18} color="#1D4ED8" />
+                          <Text style={styles.reviewExpandText}>Expand map</Text>
+                        </TouchableOpacity>
+                      </View>
                       <DmcDistrictMap
                         districtName={selectedDistrict}
-                        height={240}
-                        interactive={false}
+                        latitude={basedOnReport?.location?.coordinates?.[1]}
+                        longitude={basedOnReport?.location?.coordinates?.[0]}
+                        address={basedOnReport?.location?.address || selectedDistrict}
+                        height={440}
+                        interactive
+                        showRadius={false}
+                        editable
+                        affectedGeometry={affectedGeometry}
+                        onAreaChange={setAffectedGeometry}
                       />
                     </View>
                   </View>
@@ -1256,21 +1352,17 @@ export default function DmcOfficerDesktopPortal() {
                       </Text>
                     </View>
 
-                    <TouchableOpacity
-                      onPress={() => {
-                        setBasedOnReport(null);
-                        setActiveNav('create_warning');
-                      }}
-                      style={styles.headerPrimaryActionBtn}
-                      activeOpacity={0.85}
-                    >
-                      <Feather name="plus" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                      <Text style={styles.headerPrimaryActionBtnText}>New Warning</Text>
-                    </TouchableOpacity>
+                    
                   </View>
 
+                  {warningNotice ? (
+                    <View accessibilityLiveRegion="polite" style={styles.warningNoticeBox}>
+                      <Text style={styles.warningNoticeText}>{warningNotice}</Text>
+                    </View>
+                  ) : null}
                   {/* Active Warnings Table */}
-                  <View style={styles.tableCard}>
+                  <ScrollView horizontal style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, minWidth: 1180 }}>
+<View style={styles.tableCard}>
                     <View style={styles.tableHeaderRow}>
                       <Text style={[styles.thCell, { flex: 0.5 }]}>#</Text>
                       <Text style={[styles.thCell, { flex: 2.5 }]}>Title</Text>
@@ -1279,6 +1371,7 @@ export default function DmcOfficerDesktopPortal() {
                       <Text style={[styles.thCell, { flex: 1.5 }]}>Affected District</Text>
                       <Text style={[styles.thCell, { flex: 1 }]}>Status</Text>
                       <Text style={[styles.thCell, { flex: 1.8 }]}>Issued At</Text>
+                      <Text style={[styles.thCell, { flex: 1, textAlign: 'center' }]}>Map</Text>
                       <Text style={[styles.thCell, { flex: 3.2, textAlign: 'center' }]}>Actions</Text>
                     </View>
 
@@ -1328,7 +1421,7 @@ export default function DmcOfficerDesktopPortal() {
                                 <Text style={styles.activeStatusText}>Active</Text>
                               </View>
                             </View>
-                            <Text style={[styles.tdCell, { flex: 1.8, fontSize: 12, color: '#64748B' }]}>
+                            <Text style={[styles.tdCell, { flex: 1.8, fontSize: 16, lineHeight: 24, color: '#64748B' }]}>
                               {new Date(warning.createdAt).toLocaleDateString('en-GB', {
                                 day: '2-digit',
                                 month: 'short',
@@ -1340,15 +1433,36 @@ export default function DmcOfficerDesktopPortal() {
                               })}
                             </Text>
 
-                            {/* Action Buttons: Broadcast, Immediate Alert, Mark as Complete */}
-                            <View style={[styles.tdCell, styles.tableActionsRow, { flex: 3.2 }]}>
+                            {/* Map Preview Toggle */}
+                            <View style={[styles.tdCell, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}>
                               <TouchableOpacity
-                                onPress={() => handleRebroadcast(warning)}
-                                style={styles.tableActionBroadcastBtn}
+                                onPress={() => setSelectedActiveWarning(
+                                  selectedActiveWarning?._id === warning._id ? null : warning
+                                )}
+                                style={[
+                                  styles.tableMapViewBtn,
+                                  selectedActiveWarning?._id === warning._id && styles.tableMapViewBtnActive
+                                ]}
                                 activeOpacity={0.8}
                               >
-                                <Text style={styles.tableActionBroadcastText}>Broadcast</Text>
+                                <Feather
+                                  name="map"
+                                  size={13}
+                                  color={selectedActiveWarning?._id === warning._id ? '#FFFFFF' : '#1D4ED8'}
+                                  style={{ marginRight: 3 }}
+                                />
+                                <Text style={[
+                                  styles.tableMapViewText,
+                                  selectedActiveWarning?._id === warning._id && styles.tableMapViewTextActive
+                                ]}>
+                                  {selectedActiveWarning?._id === warning._id ? 'Hide' : 'View'}
+                                </Text>
                               </TouchableOpacity>
+                            </View>
+
+                            {/* Action Buttons: Broadcast, Immediate Alert, Mark as Complete */}
+                            <View style={[styles.tdCell, styles.tableActionsRow, { flex: 3.2 }]}>
+                              
 
                               <TouchableOpacity
                                 onPress={() => handleTriggerImmediateOnActive(warning)}
@@ -1372,51 +1486,45 @@ export default function DmcOfficerDesktopPortal() {
                       })
                     )}
                   </View>
+</ScrollView>
 
-                  {/* Explanatory Educational Card: "How Immediate Alert Appears to Citizens and Volunteers" */}
-                  <View style={styles.immediateAlertGuideCard}>
-                    <Text style={styles.guideCardTitle}>
-                      ⚠️ How Immediate Alert Appears to Citizens and Volunteers
-                    </Text>
-                    <View style={styles.guideStepsRow}>
-                      {/* Step 1 */}
-                      <View style={styles.guideStepBox}>
-                        <View style={styles.stepNumberBadge}>
-                          <Text style={styles.stepNumberText}>1</Text>
+                  {/* Active Warning Map Preview Panel */}
+                  {selectedActiveWarning && (
+                    <View style={styles.activeWarningMapPanel}>
+                      <View style={styles.activeWarningMapPanelHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.activeWarningMapPanelTitle}>
+                            📍 Affected Area — {selectedActiveWarning.affectedDistrict || 'District'}
+                          </Text>
+                          <Text style={styles.activeWarningMapPanelSub} numberOfLines={1}>
+                            {selectedActiveWarning.title}
+                            {selectedActiveWarning.affectedArea?.geometry
+                              ? '  •  Custom boundary drawn'
+                              : '  •  District-wide alert (no custom boundary)'}
+                          </Text>
                         </View>
-                        <Text style={styles.stepTitle}>Citizen/Volunteer Login</Text>
-                        <Text style={styles.stepDesc}>
-                          Citizen or volunteer logs in or is actively navigating the mobile application.
-                        </Text>
+                        <TouchableOpacity
+                          onPress={() => setSelectedActiveWarning(null)}
+                          style={{ padding: 6 }}
+                          activeOpacity={0.7}
+                        >
+                          <Feather name="x" size={18} color="#64748B" />
+                        </TouchableOpacity>
                       </View>
-
-                      <Feather name="arrow-right" size={20} color="#94A3B8" style={{ marginTop: 28 }} />
-
-                      {/* Step 2 */}
-                      <View style={styles.guideStepBox}>
-                        <View style={styles.stepNumberBadge}>
-                          <Text style={styles.stepNumberText}>2</Text>
-                        </View>
-                        <Text style={styles.stepTitle}>Emergency Alert Popup</Text>
-                        <Text style={styles.stepDesc}>
-                          Red pulsing alert banner appears instantly with sound cue, hazard information, and "View on Map".
-                        </Text>
-                      </View>
-
-                      <Feather name="arrow-right" size={20} color="#94A3B8" style={{ marginTop: 28 }} />
-
-                      {/* Step 3 */}
-                      <View style={styles.guideStepBox}>
-                        <View style={styles.stepNumberBadge}>
-                          <Text style={styles.stepNumberText}>3</Text>
-                        </View>
-                        <Text style={styles.stepTitle}>Auto-Dismisses in 10s</Text>
-                        <Text style={styles.stepDesc}>
-                          Automatically disappears in 10 seconds or immediately when the user taps "Mark as Seen".
-                        </Text>
-                      </View>
+                      <DmcDistrictMap
+                        districtName={selectedActiveWarning.affectedDistrict || 'Colombo'}
+                        latitude={selectedActiveWarning.affectedArea?.coordinates?.[1]}
+                        longitude={selectedActiveWarning.affectedArea?.coordinates?.[0]}
+                        address={selectedActiveWarning.affectedArea?.address || selectedActiveWarning.affectedDistrict || 'Colombo'}
+                        height={380}
+                        interactive
+                        showRadius={!selectedActiveWarning.affectedArea?.geometry}
+                        editable={false}
+                        affectedGeometry={selectedActiveWarning.affectedArea?.geometry || null}
+                      />
                     </View>
-                  </View>
+                  )}
+                  
                 </ScrollView>
               )}
 
@@ -1433,7 +1541,8 @@ export default function DmcOfficerDesktopPortal() {
                   </View>
 
                   {/* Completed Warnings Table */}
-                  <View style={styles.tableCard}>
+                  <ScrollView horizontal style={{ width: '100%' }} contentContainerStyle={{ flexGrow: 1, minWidth: 1180 }}>
+<View style={styles.tableCard}>
                     <View style={styles.tableHeaderRow}>
                       <Text style={[styles.thCell, { flex: 0.5 }]}>#</Text>
                       <Text style={[styles.thCell, { flex: 2.5 }]}>Title</Text>
@@ -1476,14 +1585,14 @@ export default function DmcOfficerDesktopPortal() {
                               <Text style={styles.completedStatusText}>Completed</Text>
                             </View>
                           </View>
-                          <Text style={[styles.tdCell, { flex: 1.6, fontSize: 12, color: '#64748B' }]}>
+                          <Text style={[styles.tdCell, { flex: 1.6, fontSize: 16, lineHeight: 24, color: '#64748B' }]}>
                             {new Date(warning.createdAt).toLocaleDateString('en-GB', {
                               day: '2-digit',
                               month: 'short',
                               year: 'numeric'
                             })}
                           </Text>
-                          <Text style={[styles.tdCell, { flex: 1.6, fontSize: 12, color: '#64748B' }]}>
+                          <Text style={[styles.tdCell, { flex: 1.6, fontSize: 16, lineHeight: 24, color: '#64748B' }]}>
                             {warning.completedAt
                               ? new Date(warning.completedAt).toLocaleDateString('en-GB', {
                                   day: '2-digit',
@@ -1504,6 +1613,7 @@ export default function DmcOfficerDesktopPortal() {
                       );
                     })}
                   </View>
+</ScrollView>
 
                   {/* Post-Event Analysis Card */}
                   {selectedCompletedWarning && (
@@ -1916,7 +2026,7 @@ export default function DmcOfficerDesktopPortal() {
                 <TouchableOpacity
                   onPress={() => {
                     if (Platform.OS === 'web') {
-                      window.print();
+                      printCompletedWarning(generatedReportData);
                     } else {
                       Alert.alert('Download', 'Event report downloaded to device storage.');
                     }
@@ -1935,13 +2045,30 @@ export default function DmcOfficerDesktopPortal() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (compact, mobile) => StyleSheet.create({
+  warningNoticeBox: { backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#86EFAC', borderRadius: 10, padding: 14, marginBottom: 16 },
+  warningNoticeText: { color: '#166534', fontSize: 16, lineHeight: 24 },
+  reviewFullscreen: { flex: 1, backgroundColor: '#0F172A' },
+  reviewViewerToolbar: { height: 80, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, gap: 12 },
+  reviewViewerTitle: { flex: 1, color: '#FFFFFF', fontSize: 18, lineHeight: 27, fontWeight: '700' },
+  reviewViewerButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#334155', padding: 12, borderRadius: 8 },
+  reviewExitText: { color: '#FFFFFF', fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  reviewFullscreenPhoto: { width: '100%', flex: 1 },
+  reviewPhotoNavigation: { flexDirection: 'row', justifyContent: 'center', gap: 24, padding: 16 },
+  reviewMapHeading: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
+  reviewExpandButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, borderRadius: 8, backgroundColor: '#EFF6FF' },
+  reviewExpandText: { color: '#1D4ED8', fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  reviewPhotoHint: { color: '#475569', fontSize: 14, lineHeight: 21, marginBottom: 10 },
   rootContainer: {
     flex: 1,
     backgroundColor: '#0F172A'
   },
   topHeaderBar: {
-    height: 64,
+    gap: 12,
+    flexWrap: 'wrap',
+    paddingVertical: 12,
+    minHeight: 80,
+    height: undefined,
     backgroundColor: '#0E1F4D',
     borderBottomWidth: 1,
     borderBottomColor: '#1E293B',
@@ -1970,24 +2097,17 @@ const styles = StyleSheet.create({
   },
   topBrandTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     letterSpacing: 0.5
   },
   topBrandSubtitle: {
-    color: '#94A3B8',
-    fontSize: 11,
+    color: '#CBD5E1',
+    fontSize: 14, lineHeight: 21,
     fontWeight: '500'
   },
-  headerCenterMotto: {
-    display: Platform.OS === 'web' ? 'flex' : 'none'
-  },
-  mottoText: {
-    color: '#60A5FA',
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.4
-  },
+
+
   headerRightSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1996,12 +2116,17 @@ const styles = StyleSheet.create({
   slstClockBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)'
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1
   },
   liveClockPulseDot: {
     width: 8,
@@ -2011,41 +2136,24 @@ const styles = StyleSheet.create({
     marginRight: 8
   },
   slstClockTime: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace'
+    color: '#334155',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '700'
   },
-  slstClockDate: {
-    color: '#94A3B8',
-    fontSize: 10,
-    fontWeight: '600'
+  slstBadgeText: { color: '#2563EB', fontSize: 16, lineHeight: 24, fontWeight: '800' },
+  slstBadge: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    marginLeft: 8
   },
-  headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative'
-  },
-  bellBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  bellBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800'
-  },
+
+
+
   officerProfilePill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2065,7 +2173,7 @@ const styles = StyleSheet.create({
   },
   officerAvatarText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800'
   },
   officerInfoText: {
@@ -2073,12 +2181,12 @@ const styles = StyleSheet.create({
   },
   officerName: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   officerRoleText: {
-    color: '#94A3B8',
-    fontSize: 10
+    color: '#CBD5E1',
+    fontSize: 14, lineHeight: 21
   },
   profileDropdown: {
     position: 'absolute',
@@ -2101,16 +2209,16 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   dropdownName: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A'
   },
   dropdownEmail: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B'
   },
   dropdownRole: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     color: '#2563EB',
     fontWeight: '700',
     marginTop: 2
@@ -2122,18 +2230,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 6
   },
-  dropdownItemText: {
-    fontSize: 12,
-    color: '#334155',
-    fontWeight: '600'
-  },
+
   dropdownItemLogout: {
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     marginTop: 4
   },
   dropdownItemLogoutText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#DC2626',
     fontWeight: '700'
   },
@@ -2171,9 +2275,9 @@ const styles = StyleSheet.create({
     marginRight: 12
   },
   navText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
-    color: '#94A3B8'
+    color: '#CBD5E1'
   },
   navTextActive: {
     color: '#FFFFFF',
@@ -2193,7 +2297,7 @@ const styles = StyleSheet.create({
   },
   navCounterText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   sidebarFooter: {
@@ -2213,11 +2317,12 @@ const styles = StyleSheet.create({
     marginRight: 8
   },
   systemStatusText: {
-    color: '#94A3B8',
-    fontSize: 11,
+    color: '#CBD5E1',
+    fontSize: 14, lineHeight: 21,
     fontWeight: '500'
   },
   contentArea: {
+    minWidth: 0,
     flex: 1,
     backgroundColor: '#F8FAFC'
   },
@@ -2228,27 +2333,32 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 14,
+    fontSize: 16, lineHeight: 24,
     color: '#475569',
     fontWeight: '600'
   },
   viewContainer: {
-    padding: 24
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 1280,
+    padding: mobile ? 16 : 28
   },
   pageHeaderRow: {
+    gap: 10,
+    flexWrap: 'wrap',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20
   },
   pageTitle: {
-    fontSize: 22,
+    fontSize: 28, lineHeight: 38,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.3
   },
   pageSubtitle: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     marginTop: 2
   },
@@ -2274,7 +2384,7 @@ const styles = StyleSheet.create({
   },
   liveGreenPillText: {
     color: '#15803D',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700'
   },
   refreshButton: {
@@ -2288,7 +2398,7 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE'
   },
   refreshButtonText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#1E3A8A',
     fontWeight: '700'
   },
@@ -2328,10 +2438,10 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: '#0F172A',
-    lineHeight: 28
+    lineHeight: 36
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     fontWeight: '600',
     marginTop: 2
@@ -2343,12 +2453,12 @@ const styles = StyleSheet.create({
     marginBottom: 14
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A'
   },
   sectionSubtitle: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B'
   },
   viewAllBtn: {
@@ -2356,7 +2466,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   viewAllBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#2563EB',
     fontWeight: '700'
   },
@@ -2366,13 +2476,13 @@ const styles = StyleSheet.create({
     gap: 16
   },
   verifiedCard: {
-    width: Platform.OS === 'web' ? '31.8%' : '100%',
-    minWidth: 280,
+    width: compact ? '100%' : '48%',
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: compact ? '100%' : '48%', height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
@@ -2388,9 +2498,10 @@ const styles = StyleSheet.create({
     padding: 14
   },
   badgeRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     marginBottom: 8
   },
   hazardPill: {
@@ -2400,7 +2511,7 @@ const styles = StyleSheet.create({
     borderWidth: 1
   },
   hazardPillText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   severityPill: {
@@ -2410,11 +2521,11 @@ const styles = StyleSheet.create({
     borderWidth: 1
   },
   severityPillText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800'
   },
   verifiedCardTitle: {
-    fontSize: 15,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 6
@@ -2426,15 +2537,16 @@ const styles = StyleSheet.create({
     gap: 6
   },
   verifiedCardMetaText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     fontWeight: '500',
     flex: 1
   },
   cardActionsRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     marginTop: 12,
     paddingTop: 10,
     borderTopWidth: 1,
@@ -2450,7 +2562,7 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1'
   },
   reviewReportBtnText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#334155',
     fontWeight: '700'
   },
@@ -2462,7 +2574,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   createWarningBtnText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#FFFFFF',
     fontWeight: '700'
   },
@@ -2472,7 +2584,7 @@ const styles = StyleSheet.create({
     marginBottom: 14
   },
   backLinkText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#2563EB',
     fontWeight: '700',
     marginLeft: 4
@@ -2494,12 +2606,12 @@ const styles = StyleSheet.create({
     borderColor: '#A7F3D0'
   },
   dutyOfficerVerifiedBadgeText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#059669'
   },
   detailReportTitle: {
-    fontSize: 22,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A',
     marginTop: 6
@@ -2519,7 +2631,7 @@ const styles = StyleSheet.create({
   },
   headerPrimaryActionBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700'
   },
   reportMetaCard: {
@@ -2540,25 +2652,27 @@ const styles = StyleSheet.create({
     gap: 6
   },
   reportMetaItemText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#334155',
     fontWeight: '600'
   },
   reportNumberPill: {
     backgroundColor: '#F1F5F9',
     color: '#475569',
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4
   },
   detailTwoColGrid: {
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-    gap: 18,
+    flexDirection: compact ? 'column' : 'row',
+    gap: 20,
     marginBottom: 18
   },
   galleryColumn: {
+    width: compact ? '100%' : undefined,
+    minWidth: 0,
     flex: 1.1,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -2567,7 +2681,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   subCardTitle: {
-    fontSize: 14,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 12
@@ -2606,10 +2720,12 @@ const styles = StyleSheet.create({
   },
   noPhotoText: {
     marginTop: 8,
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#94A3B8'
   },
   mapColumn: {
+    width: compact ? '100%' : undefined,
+    minWidth: 0,
     flex: 0.9,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -2626,7 +2742,7 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   mapCaptionText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#1E3A8A',
     fontWeight: '600'
   },
@@ -2639,14 +2755,15 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   descriptionBodyText: {
-    fontSize: 14,
+    maxWidth: 760,
+    fontSize: 18,
     color: '#334155',
-    lineHeight: 22
+    lineHeight: 29
   },
   verificationNoteText: {
-    fontSize: 13,
+    fontSize: 16,
     color: '#059669',
-    lineHeight: 20,
+    lineHeight: 24,
     fontStyle: 'italic'
   },
   basedOnReportBanner: {
@@ -2665,19 +2782,19 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   basedOnLabel: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#2563EB',
     textTransform: 'uppercase'
   },
   basedOnTitle: {
-    fontSize: 14,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     marginVertical: 1
   },
   basedOnLocation: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B'
   },
   basedOnViewBtn: {
@@ -2689,16 +2806,18 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE'
   },
   basedOnViewBtnText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#2563EB',
     fontWeight: '700'
   },
   createWarningGrid: {
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+    flexDirection: compact ? 'column' : 'row',
     gap: 20,
     marginBottom: 20
   },
   createFormColumn: {
+    width: compact ? '100%' : undefined,
+    minWidth: 0,
     flex: 1.2,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -2707,6 +2826,8 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   createMapColumn: {
+    width: compact ? '100%' : undefined,
+    minWidth: 0,
     flex: 0.8,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -2718,18 +2839,19 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   fieldLabel: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 8
   },
   inputField: {
+    minHeight: 52,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     backgroundColor: '#F8FAFC'
   },
@@ -2751,7 +2873,7 @@ const styles = StyleSheet.create({
     borderColor: '#1E3A8A'
   },
   hazardSelectorText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '600',
     color: '#475569'
   },
@@ -2791,12 +2913,12 @@ const styles = StyleSheet.create({
     borderRadius: 4
   },
   sevOptionTitle: {
-    fontSize: 12,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#334155'
   },
   sevOptionSub: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B'
   },
   districtChipsScroll: {
@@ -2817,7 +2939,7 @@ const styles = StyleSheet.create({
     borderColor: '#DC2626'
   },
   districtChipText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600',
     color: '#475569'
   },
@@ -2834,8 +2956,8 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   actionButtonsRow: {
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-    gap: 16
+    flexDirection: compact ? 'column' : 'row',
+    gap: 20
   },
   buttonActionColumn: {
     flex: 1
@@ -2851,7 +2973,7 @@ const styles = StyleSheet.create({
     borderColor: '#CBD5E1'
   },
   saveDraftBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#334155'
   },
@@ -2869,7 +2991,7 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   broadcastWarningBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#FFFFFF'
   },
@@ -2887,18 +3009,20 @@ const styles = StyleSheet.create({
     elevation: 4
   },
   sendImmediateAlertBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#FFFFFF'
   },
   buttonCaption: {
-    fontSize: 11,
+    fontSize: 14,
     color: '#64748B',
     marginTop: 6,
     textAlign: 'center',
-    lineHeight: 15
+    lineHeight: 21
   },
   tableCard: {
+    flex: 1,
+    minWidth: 1180,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     overflow: 'hidden',
@@ -2915,7 +3039,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#CBD5E1'
   },
   thCell: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#475569',
     textTransform: 'uppercase',
@@ -2924,7 +3048,7 @@ const styles = StyleSheet.create({
   tableBodyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 18,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9'
@@ -2933,16 +3057,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF'
   },
   tdCell: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A'
   },
   warningTableTitle: {
-    fontSize: 13,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A'
   },
   warningTableMessage: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     marginTop: 2
   },
@@ -2954,7 +3078,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start'
   },
   activeStatusText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#15803D'
   },
@@ -2966,27 +3090,17 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start'
   },
   completedStatusText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#3730A3'
   },
   tableActionsRow: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6
-  },
-  tableActionBroadcastBtn: {
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 5
-  },
-  tableActionBroadcastText: {
-    fontSize: 11,
-    color: '#FFFFFF',
-    fontWeight: '700'
-  },
+    gap: 10
+  },
   tableActionImmediateBtn: {
     backgroundColor: '#DC2626',
     paddingHorizontal: 8,
@@ -2994,7 +3108,7 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   tableActionImmediateText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#FFFFFF',
     fontWeight: '700'
   },
@@ -3007,9 +3121,58 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   tableActionCompleteText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#FFFFFF',
     fontWeight: '700'
+  },
+  tableMapViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#1D4ED8',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 5
+  },
+  tableMapViewBtnActive: {
+    backgroundColor: '#1D4ED8',
+    borderColor: '#1D4ED8'
+  },
+  tableMapViewText: {
+    fontSize: 13, lineHeight: 19,
+    color: '#1D4ED8',
+    fontWeight: '700'
+  },
+  tableMapViewTextActive: {
+    color: '#FFFFFF'
+  },
+  activeWarningMapPanel: {
+    marginTop: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2
+  },
+  activeWarningMapPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12
+  },
+  activeWarningMapPanelTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1E3A8A'
+  },
+  activeWarningMapPanelSub: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2
   },
   emptyTableState: {
     padding: 40,
@@ -3017,68 +3180,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   emptyTableTitle: {
-    fontSize: 15,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#334155',
     marginTop: 10
   },
   emptyTableSub: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#94A3B8',
     marginTop: 4
-  },
-  immediateAlertGuideCard: {
-    backgroundColor: '#FFF1F2',
-    borderRadius: 12,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#FECDD3'
-  },
-  guideCardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#9F1239',
-    marginBottom: 14
-  },
-  guideStepsRow: {
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12
-  },
-  guideStepBox: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#FFE4E6'
-  },
-  stepNumberBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  stepNumberText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800'
-  },
-  stepTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4
-  },
-  stepDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    lineHeight: 16
-  },
+  },
   postEventAnalysisCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -3094,12 +3205,12 @@ const styles = StyleSheet.create({
     marginBottom: 16
   },
   analysisCardTitle: {
-    fontSize: 18,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A'
   },
   analysisCardSub: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#64748B',
     marginTop: 2
   },
@@ -3112,7 +3223,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   generateReportPrimaryBtnText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#FFFFFF'
   },
@@ -3132,12 +3243,12 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0'
   },
   metricVal: {
-    fontSize: 22,
+    fontSize: 22, lineHeight: 33,
     fontWeight: '800',
     color: '#0F172A'
   },
   metricTitle: {
-    fontSize: 11,
+    fontSize: 20, lineHeight: 30,
     color: '#64748B',
     fontWeight: '600',
     marginTop: 2
@@ -3154,15 +3265,15 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   findingLabel: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#334155'
   },
   findingValue: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#475569',
     marginTop: 2,
-    lineHeight: 18
+    lineHeight: 24
   },
   generateReportFooterRow: {
     flexDirection: 'row',
@@ -3178,7 +3289,7 @@ const styles = StyleSheet.create({
     gap: 8
   },
   reportDropdownLabel: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#475569'
   },
@@ -3192,7 +3303,7 @@ const styles = StyleSheet.create({
     gap: 6
   },
   reportDropdownText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '600'
   },
@@ -3205,7 +3316,7 @@ const styles = StyleSheet.create({
     borderRadius: 8
   },
   generateReportBtnText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#FFFFFF'
   },
@@ -3219,7 +3330,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   viewAnalysisBtnText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#2563EB',
     fontWeight: '700'
   },
@@ -3229,7 +3340,8 @@ const styles = StyleSheet.create({
     gap: 16
   },
   reportCatalogueCard: {
-    width: Platform.OS === 'web' ? '31.5%' : '100%',
+    minWidth: 0,
+    width: compact ? '100%' : '48%',
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
@@ -3243,13 +3355,13 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   reportCardTitle: {
-    fontSize: 14,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 4
   },
   reportCardDistrict: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     marginBottom: 14
   },
@@ -3264,7 +3376,7 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE'
   },
   catalogueDownloadText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#2563EB'
   },
@@ -3284,12 +3396,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   settingItemTitle: {
-    fontSize: 13,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '700',
     color: '#0F172A'
   },
   settingItemSub: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B',
     marginTop: 2
   },
@@ -3300,7 +3412,7 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   settingBadgeText: {
-    fontSize: 11,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '700',
     color: '#475569'
   },
@@ -3338,13 +3450,13 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   reportDocHeaderTitle: {
-    fontSize: 14,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: 0.5
   },
   reportDocHeaderSub: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '600',
     color: '#64748B',
     marginTop: 2
@@ -3367,12 +3479,12 @@ const styles = StyleSheet.create({
     flex: 1
   },
   reportMetaSmallLabel: {
-    fontSize: 9,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#64748B'
   },
   reportMetaBoldVal: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A',
     marginTop: 2
@@ -3381,7 +3493,7 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   reportSectionHeading: {
-    fontSize: 13,
+    fontSize: 20, lineHeight: 30,
     fontWeight: '800',
     color: '#1E3A8A',
     textTransform: 'uppercase',
@@ -3389,15 +3501,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5
   },
   reportEventTitleText: {
-    fontSize: 16,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 6
   },
   reportParagraphText: {
-    fontSize: 12,
+    fontSize: 16,
     color: '#475569',
-    lineHeight: 18
+    lineHeight: 24
   },
   reportStatTable: {
     backgroundColor: '#F8FAFC',
@@ -3414,23 +3526,23 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9'
   },
   reportStatTableKey: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#475569',
     fontWeight: '600'
   },
   reportStatTableVal: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     color: '#0F172A',
     fontWeight: '800'
   },
   reportCalloutBold: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 4
   },
   reportCalloutItalic: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontStyle: 'italic',
     color: '#475569'
   },
@@ -3452,12 +3564,12 @@ const styles = StyleSheet.create({
     marginBottom: 6
   },
   signatureNameText: {
-    fontSize: 12,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#0F172A'
   },
   signatureRoleText: {
-    fontSize: 10,
+    fontSize: 14, lineHeight: 21,
     color: '#64748B'
   },
   officialSealBox: {
@@ -3475,12 +3587,12 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-12deg' }]
   },
   sealText: {
-    fontSize: 9,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '900',
     color: '#DC2626'
   },
   sealSubText: {
-    fontSize: 7,
+    fontSize: 14, lineHeight: 21,
     fontWeight: '800',
     color: '#DC2626'
   },
@@ -3500,7 +3612,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0'
   },
   modalCancelBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '700',
     color: '#475569'
   },
@@ -3513,7 +3625,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB'
   },
   modalDownloadPdfBtnText: {
-    fontSize: 13,
+    fontSize: 16, lineHeight: 24,
     fontWeight: '800',
     color: '#FFFFFF'
   }

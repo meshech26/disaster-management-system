@@ -17,11 +17,14 @@ export const AuthProvider = ({ children }) => {
   const loadStoredAuth = async () => {
     try {
       const storedToken = await storage.getItem('auth_token');
-      const storedUser = await storage.getItem('auth_user');
-
-      if (storedToken && storedUser) {
+      if (storedToken) {
+        // Restore the role from the authenticated database profile, not editable local data.
+        const response = await authService.getMe();
+        const verifiedUser = normalizeAuthUser(response.data);
+        if (!verifiedUser?._id) throw new Error('Could not verify the saved session.');
+        await storage.setItem('auth_user', JSON.stringify(verifiedUser));
         setToken(storedToken);
-        setUser(normalizeAuthUser(JSON.parse(storedUser)));
+        setUser(verifiedUser);
       }
     } catch (e) {
       console.warn('Failed loading stored auth credentials:', e);
@@ -96,13 +99,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const switchRoleDemo = (role) => {
-    if (user) {
-      const updated = { ...user, role };
-      setUser(updated);
-      storage.setItem('auth_user', JSON.stringify(updated));
-    }
-  };
 
   return (
     <AuthContext.Provider
@@ -113,8 +109,7 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
-        updateLocation,
-        switchRoleDemo
+        updateLocation
       }}
     >
       {children}

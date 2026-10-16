@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 const SocketContext = createContext(undefined);
 
 export const SocketProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [activeSosAlerts, setActiveSosAlerts] = useState([]);
   const [latestBroadcast, setLatestBroadcast] = useState(null);
@@ -16,7 +16,7 @@ export const SocketProvider = ({ children }) => {
     const onConnect = () => {
       setIsConnected(true);
       if (user) {
-        socketService.joinRole(user.role, user.id || user._id);
+        socketService.joinRole(user.role, user.id || user._id, token);
       }
     };
 
@@ -52,13 +52,14 @@ export const SocketProvider = ({ children }) => {
     }
 
     return () => {
+      socket.emit('leave_role_room');
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('emergency_sos_beacon', onSosBeacon);
       socket.off('sos_status_changed', onSosStatusChanged);
       socket.off('emergency_alert_broadcast', onEmergencyAlertBroadcast);
     };
-  }, [user]);
+  }, [user, token]);
 
   const dismissBroadcast = () => {
     setLatestBroadcast(null);

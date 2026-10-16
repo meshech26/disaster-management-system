@@ -1,9 +1,12 @@
+const { emitImmediateAlert, normalizeDistrict, isPublicRecipient } = require('../services/emergencyAudience');
 const AlertBroadcast = require('../models/AlertBroadcast');
 const Incident = require('../models/Incident');
 const ApiResponse = require('../utils/apiResponse');
 const { getIo } = require('../socket/socketHandler');
 const { sendPushNotification } = require('../services/notificationService');
 const User = require('../models/User');
+const { affectedGeometrySchema } = require('../validators/affectedAreaValidator');
+const { getUnpublishedVerifiedReportFilter } = require('../services/verifiedReportService');
 
 // @desc    Get active emergency broadcasts (for mobile citizen/volunteer live alert feed)
 // @route   GET /api/broadcasts
@@ -56,8 +59,9 @@ const getAllBroadcasts = async (req, res, next) => {
 // @route   GET /api/broadcasts/stats
 const getBroadcastStats = async (req, res, next) => {
   try {
+    const verifiedQueueFilter = await getUnpublishedVerifiedReportFilter();
     const [verifiedIncidents, draftWarnings, activeWarnings, completedWarnings] = await Promise.all([
-      Incident.countDocuments({ status: 'verified' }),
+      Incident.countDocuments(verifiedQueueFilter),
       AlertBroadcast.countDocuments({ status: 'draft' }),
       AlertBroadcast.countDocuments({ status: 'active', isActive: true }),
       AlertBroadcast.countDocuments({ status: 'completed' })
@@ -78,19 +82,12 @@ const getBroadcastStats = async (req, res, next) => {
 // @route   GET /api/broadcasts/active-immediate
 const getActiveImmediateAlerts = async (req, res, next) => {
   try {
-    const { district } = req.query;
-    const filter = {
-      status: 'active',
-      isActive: true,
-      isImmediateAlert: true
-    };
-
-    if (district && district.trim() && district !== 'All Districts') {
-      filter.$or = [
-        { affectedDistrict: 'All Districts' },
-        { affectedDistrict: { $regex: new RegExp(district.trim(), 'i') } }
-      ];
-    }
+    if (!isPublicRecipient(req.user?.role)) return ApiResponse.success(res, [], 'No alerts for this role');
+    const district = normalizeDistrict(req.user.district);
+    const escapedDistrict = [...district].map((char) => '^$\\.*+?()[]{}|'.includes(char) ? String.fromCharCode(92) + char : char).join('');
+    const filter = { status: 'active', isActive: true, isImmediateAlert: true };
+    filter.$or = [{ affectedDistrict: /^all districts$/i }];
+    if (district) filter.$or.push({ affectedDistrict: new RegExp('^' + escapedDistrict + '(?: district)?$', 'i') });
 
     const alerts = await AlertBroadcast.find(filter)
       .populate('issuedBy', 'name agency')
@@ -127,6 +124,9 @@ const createBroadcast = async (req, res, next) => {
       return ApiResponse.error(res, 'Warning title is required', 400);
     }
 
+    if (affectedArea?.geometry != null && !affectedGeometrySchema.safeParse(affectedArea.geometry).success) {
+      return ApiResponse.error(res, 'Draw a valid affected boundary with at least three distinct points.', 400);
+    }
     const targetStatus = status === 'draft' ? 'draft' : 'active';
     const isActive = targetStatus === 'active';
 
@@ -164,6 +164,7 @@ const createBroadcast = async (req, res, next) => {
       issuedBy: req.user?._id,
       isActive,
       isImmediateAlert: Boolean(isImmediateAlert),
+      immediateTriggeredAt: isImmediateAlert ? new Date() : undefined,
       broadcastToAll: broadcastToAll !== false,
       incidentId: incidentId || null,
       expiresAt
@@ -182,19 +183,15 @@ const createBroadcast = async (req, res, next) => {
 
         // If Immediate Alert requested, emit immediate high-priority alert with 10s auto-dismiss
         if (isImmediateAlert) {
-          io.emit('immediate_emergency_alert', {
-            ...populatedBroadcast.toObject(),
-            autoDismissSeconds: 10,
-            triggeredAt: new Date()
-          });
+          emitImmediateAlert(io, populatedBroadcast);
         }
       } catch (e) {
         console.warn('[Socket.IO] Error emitting broadcast:', e.message);
       }
 
       // Send push notification to target devices
-      try {
-        const userQuery = { expoPushToken: { $exists: true, $ne: '' } };
+      void (async () => {
+        const userQuery = { role: { $in: ['citizen', 'volunteer'] }, expoPushToken: { $exists: true, $ne: '' } };
         if (affectedDistrict && affectedDistrict !== 'All Districts' && !broadcastToAll) {
           userQuery.district = affectedDistrict;
         }
@@ -209,9 +206,9 @@ const createBroadcast = async (req, res, next) => {
             { alertId: broadcast._id.toString(), type: 'BROADCAST', isImmediateAlert: Boolean(isImmediateAlert) }
           );
         }
-      } catch (e) {
+      })().catch((e) => {
         console.warn('[PushNotification] Error sending push notification:', e.message);
-      }
+      });
     }
 
     return ApiResponse.success(
@@ -291,6 +288,7 @@ const triggerImmediateAlert = async (req, res, next) => {
         status: 'active',
         isActive: true,
         isImmediateAlert: true,
+        immediateTriggeredAt: new Date(),
         updatedAt: new Date()
       },
       { new: true }
@@ -305,11 +303,7 @@ const triggerImmediateAlert = async (req, res, next) => {
     try {
       const io = getIo();
       // Emits high-priority alert with 10s auto-dismiss countdown
-      io.emit('immediate_emergency_alert', {
-        ...broadcast.toObject(),
-        autoDismissSeconds: 10,
-        triggeredAt: new Date()
-      });
+      emitImmediateAlert(io, broadcast);
       io.emit('emergency_alert_broadcast', broadcast);
     } catch (e) {}
 

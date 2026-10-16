@@ -17,7 +17,7 @@ const { authorize } = require('../middleware/roleMiddleware');
 
 // Public or citizen/volunteer feeds
 router.get('/', getActiveBroadcasts);
-router.get('/active-immediate', getActiveImmediateAlerts);
+router.get('/active-immediate', authenticate, getActiveImmediateAlerts);
 
 // DMC Officer & Admin feeds
 router.get('/all', authenticate, authorize('admin', 'dmc_officer', 'duty_officer'), getAllBroadcasts);

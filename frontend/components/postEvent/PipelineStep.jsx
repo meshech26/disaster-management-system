@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Card, Label, Pill, Btn } from './ui';
+import { QUALITY } from './QualityBanner';
 import { c, sp } from './theme';
 
 const DEFAULT_STAGES = [
@@ -57,11 +58,12 @@ function StageRow({ stage }) {
   );
 }
 
-export default function PipelineStep({ status, onOpen, opening, error }) {
+export default function PipelineStep({ status, onOpen, opening, onDownload, downloading, error }) {
   const progress = status?.progress ?? 0;
   const stages = status?.stages?.length ? status.stages : DEFAULT_STAGES;
   const ready = status?.status === 'ready';
   const failed = status?.status === 'failed';
+  const quality = ready ? QUALITY[status.dataQuality] : null;
 
   return (
     <View style={{ alignItems: 'center', paddingVertical: sp.lg }}>
@@ -81,13 +83,31 @@ export default function PipelineStep({ status, onOpen, opening, error }) {
 
         {error ? <Text style={{ color: c.error, fontSize: 12 }}>{error}</Text> : null}
 
-        <Btn
-          style={{ width: '100%' }}
-          title={opening ? 'Opening…' : 'Open Verified Audit Dashboard'}
-          disabled={!ready || opening}
-          onPress={onOpen}
-          icon={<MaterialIcons name="visibility" size={16} color={c.onPrimary} />}
-        />
+        {quality ? (
+          <View style={{ width: '100%', gap: 4, alignItems: 'center' }}>
+            <Pill text={quality.label} color={quality.color} bg={quality.bg} />
+            {status.dataQuality !== 'complete' ? <Text style={s.sub}>{quality.text}</Text> : null}
+          </View>
+        ) : null}
+
+        {ready ? <Label>What would you like to do?</Label> : null}
+        <View style={s.choice}>
+          <Btn
+            style={{ flex: 1 }}
+            title={opening ? 'Opening…' : 'View Report'}
+            disabled={!ready || opening}
+            onPress={onOpen}
+            icon={<MaterialIcons name="visibility" size={16} color={c.onPrimary} />}
+          />
+          <Btn
+            style={{ flex: 1 }}
+            variant="secondary"
+            title={downloading ? 'Preparing…' : 'Download PDF'}
+            disabled={!ready || downloading}
+            onPress={onDownload}
+            icon={<MaterialIcons name="download" size={16} color={c.onSurface} />}
+          />
+        </View>
       </Card>
     </View>
   );
@@ -98,5 +118,6 @@ const s = StyleSheet.create({
   h1: { color: c.onSurface, fontSize: 22, fontWeight: '700', textAlign: 'center' },
   sub: { color: c.onSurfaceVariant, fontSize: 13, textAlign: 'center' },
   stage: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: sp.sm, backgroundColor: c.container, padding: sp.md, borderRadius: 4 },
+  choice: { width: '100%', flexDirection: 'row', gap: sp.sm, flexWrap: 'wrap' },
   stageLabel: { color: c.onSurface, fontSize: 13, fontWeight: '600', flexShrink: 1 }
 });

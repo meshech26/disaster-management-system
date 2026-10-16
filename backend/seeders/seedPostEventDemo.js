@@ -1,15 +1,3 @@
-/**
- * OPTIONAL demo data for the Post-Event Report.
- *
- * Safe to run: it NEVER deletes your real data. It only
- *   1. gives ONE completed warning a map area (if it has none),
- *   2. adds a few clearly-labelled "[DEMO]" incidents, SOS alerts and rescue missions
- *      inside that warning's area and time window,
- * so the report has ground reports and rescue deployments to show.
- *
- * Run:     node seeders/seedPostEventDemo.js
- * Remove:  node seeders/seedPostEventDemo.js --remove      (deletes only the [DEMO] records)
- */
 const mongoose = require('mongoose');
 const { MONGO_URI } = require('../config/env');
 const User = require('../models/User');

@@ -8,10 +8,11 @@ import ShelterBars from './charts/ShelterBars';
 import RescueTable from './charts/RescueTable';
 import { postEventReportService } from '../../services/postEventReportService';
 import { confirmDialog, infoDialog } from './dialog';
-import { fmtDate, fmtNum, prettyType } from './format';
+import QualityBanner from './QualityBanner';
+import { fmtDate, fmtNum, prettyType, roleLabel } from './format';
 import { c, mono, sp } from './theme';
 
-export default function AuditReportStep({ report: initial, wide }) {
+export default function AuditReportStep({ report: initial, wide, onDownload, downloading }) {
   const [report, setReport] = useState(initial);
   const [archiving, setArchiving] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -71,14 +72,16 @@ export default function AuditReportStep({ report: initial, wide }) {
             <Text style={[s.meta, { color: c.tertiary }]}>AUDIT RETENTION: STATUTORY 7 YRS</Text>
           </View>
           <View style={[s.row, { flexWrap: 'wrap' }]}>
-            <Btn title="Download PDF" icon={<MaterialIcons name="download" size={16} color={c.onPrimary} />}
-              onPress={() => infoDialog('Coming soon', 'PDF export is the next step of this component.')} />
+            <Btn title={downloading ? 'Preparing PDF…' : 'Download PDF'} disabled={downloading} onPress={onDownload}
+              icon={<MaterialIcons name="download" size={16} color={c.onPrimary} />} />
             <Btn variant="secondary" title={archived ? 'Archived' : archiving ? 'Archiving…' : 'Archive & Close Log'}
               disabled={archived || archiving} onPress={onArchive}
               icon={<MaterialIcons name="archive" size={16} color={c.onSurface} />} />
           </View>
         </View>
       </Card>
+
+      <QualityBanner completeness={d.completeness} />
 
       {/* Alerts + timeline */}
       <View style={{ flexDirection: wide ? 'row' : 'column', gap: sp.lg }}>
@@ -196,7 +199,7 @@ export default function AuditReportStep({ report: initial, wide }) {
               <Label>Operational Authority Sign-off</Label>
               <Text style={s.val}>
                 {report.generatedBy}
-                <Text style={s.note}> • {prettyType(report.generatedByRole || 'dmc_officer')}</Text>
+                <Text style={s.note}> • {roleLabel(report.generatedByRole)}</Text>
               </Text>
               {report.generatedByAgency ? <Text style={s.note}>{report.generatedByAgency}</Text> : null}
               <Text style={s.note}>Countersigned: Director General, Disaster Management Centre (DMC)</Text>

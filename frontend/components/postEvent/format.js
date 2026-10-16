@@ -19,3 +19,6 @@ export const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 export const prettyType = (t) =>
   String(t || 'other').replace(/[_-]/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
 export const shortId = (id) => String(id || '').slice(-6).toUpperCase();
+
+const ROLES = { dmc_officer: 'DMC Officer', admin: 'Administrator', district_officer: 'District Officer', duty_officer: 'Duty Officer' };
+export const roleLabel = (r) => ROLES[r] || prettyType(r || 'dmc_officer');

@@ -34,6 +34,7 @@ const PostEventReportSchema = new mongoose.Schema(
       index: true
     },
     progress: { type: Number, default: 0 },
+    dataQuality: { type: String, enum: ['complete', 'partial', 'insufficient'] },
     stages: [StageSchema],
     error: String,
     data: mongoose.Schema.Types.Mixed, // compiled report (what the dashboard renders)

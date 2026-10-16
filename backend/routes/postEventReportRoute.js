@@ -6,6 +6,7 @@ const {
   getReportStatus,
   getReport,
   verifyReport,
+  downloadPdf,
   archiveReport
 } = require('../controllers/postEventReportController');
 const { authenticate } = require('../middleware/authMiddleware');
@@ -18,6 +19,7 @@ router.get('/events', listEvents);
 router.post('/generate', generateReport);
 router.get('/:id/status', getReportStatus);
 router.get('/:id/verify', verifyReport);
+router.get('/:id/pdf', downloadPdf);
 router.get('/:id', getReport);
 router.patch('/:id/archive', archiveReport);
 

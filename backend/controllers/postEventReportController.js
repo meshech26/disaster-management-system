@@ -4,6 +4,7 @@ const AlertBroadcast = require('../models/AlertBroadcast');
 const ApiResponse = require('../utils/apiResponse');
 const { compileReport } = require('../services/postEventCompiler');
 const { sha256Of } = require('../utils/postEventHash');
+const { buildPdf } = require('../services/postEventPdf');
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -80,9 +81,15 @@ const generateReport = async (req, res) => {
 const getReportStatus = async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return ApiResponse.error(res, 'Invalid report id', 400);
-    const r = await PostEventReport.findById(req.params.id).select('status progress stages error').lean();
+    const r = await PostEventReport.findById(req.params.id).select('status progress stages error dataQuality').lean();
     if (!r) return ApiResponse.error(res, 'Report not found', 404);
-    return ApiResponse.success(res, { status: r.status, progress: r.progress, stages: r.stages, error: r.error || null });
+    return ApiResponse.success(res, {
+      status: r.status,
+      progress: r.progress,
+      stages: r.stages,
+      error: r.error || null,
+      dataQuality: r.dataQuality || null
+    });
   } catch (error) {
     return ApiResponse.error(res, 'Failed to read report status', 500, error.message);
   }
@@ -131,4 +138,31 @@ const archiveReport = async (req, res) => {
   }
 };
 
-module.exports = { listEvents, generateReport, getReportStatus, getReport, verifyReport, archiveReport };
+// GET /api/post-event-reports/:id/pdf  -> official PDF (refuses if the SHA-256 seal no longer matches)
+const downloadPdf = async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return ApiResponse.error(res, 'Invalid report id', 400);
+    const r = await PostEventReport.findById(req.params.id).lean();
+    if (!r) return ApiResponse.error(res, 'Report not found', 404);
+    if (!['ready', 'archived'].includes(r.status)) return ApiResponse.error(res, `Report is ${r.status}`, 409);
+    if (sha256Of(r.data) !== r.sha256) {
+      return ApiResponse.error(
+        res,
+        'Seal check failed: the stored report data no longer matches its SHA-256 seal, so the PDF was not generated.',
+        409
+      );
+    }
+
+    const pdf = await buildPdf(r);
+    const filename = `DMC_Post_Event_Report_${String(r._id).slice(-6).toUpperCase()}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdf.length);
+    return res.status(200).send(pdf);
+  } catch (error) {
+    const missing = error.code === 'PDFKIT_MISSING';
+    return ApiResponse.error(res, missing ? error.message : 'Failed to generate PDF', missing ? 501 : 500, error.message);
+  }
+};
+
+module.exports = { listEvents, generateReport, getReportStatus, getReport, verifyReport, downloadPdf, archiveReport };

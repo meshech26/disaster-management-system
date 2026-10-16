@@ -5,6 +5,7 @@ import SelectFilterStep from './SelectFilterStep';
 import PipelineStep from './PipelineStep';
 import AuditReportStep from './AuditReportStep';
 import { postEventReportService } from '../../services/postEventReportService';
+import { infoDialog } from './dialog';
 import { c, mono, sp } from './theme';
 
 const STEPS = [
@@ -25,6 +26,7 @@ export default function PostEventReports() {
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(null);
   const poll = useRef(null);
 
@@ -71,6 +73,18 @@ export default function PostEventReports() {
     }
   };
 
+  const downloadPdf = async () => {
+    if (!reportId) return;
+    setDownloading(true);
+    try {
+      await postEventReportService.downloadPdf(reportId);
+    } catch (e) {
+      infoDialog('Download failed', e.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const canGo = (n) => n === 1 || (n === 2 && !!reportId) || (n === 3 && !!report);
 
   return (
@@ -99,8 +113,8 @@ export default function PostEventReports() {
 
       <View style={{ padding: sp.md }}>
         {step === 1 && <SelectFilterStep wide={wide} onGenerate={generate} busy={busy} error={error} />}
-        {step === 2 && <PipelineStep status={status} onOpen={openReport} opening={opening} error={error} />}
-        {step === 3 && report && <AuditReportStep key={report._id} report={report} wide={wide} />}
+        {step === 2 && <PipelineStep status={status} onOpen={openReport} opening={opening} onDownload={downloadPdf} downloading={downloading} error={error} />}
+        {step === 3 && report && <AuditReportStep key={report._id} report={report} wide={wide} onDownload={downloadPdf} downloading={downloading} />}
       </View>
     </View>
   );

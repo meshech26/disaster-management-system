@@ -22,7 +22,9 @@ export const c = {
   errorContainer: '#93000a',
   onSurface: '#d6e3fe',
   onSurfaceVariant: '#c2c6d6',
-  outline: '#8c909f'
+  outline: '#8c909f',
+  warn: '#f5b94a',
+  warnBg: 'rgba(245,185,74,0.16)'
 };
 
 export const mono = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
